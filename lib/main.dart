@@ -1,15 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
 
 import 'app/app_route_observer.dart';
 import 'app/app_shell.dart';
 import 'app/theme/tasker_theme.dart';
+import 'features/tasks/presentation/state/task_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('pt_BR');
-  runApp(const TaskerApp());
+
+  final taskStore = TaskStore();
+  await taskStore.initialize();
+
+  runApp(
+    ChangeNotifierProvider<TaskStore>.value(
+      value: taskStore,
+      child: const TaskerApp(),
+    ),
+  );
 }
 
 class TaskerApp extends StatelessWidget {

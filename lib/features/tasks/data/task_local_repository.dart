@@ -14,6 +14,23 @@ class TaskLocalRepository {
 
   static const _tasksKey = 'tasker_tasks_json';
 
+  Future<Task?> getById(String id) async {
+    final all = await getAll();
+    for (final t in all) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
+  static Map<String, dynamic> _normalizeTaskMap(dynamic item) {
+    final map = Map<String, dynamic>.from(item as Map);
+    final loc = map['location'];
+    if (loc is Map) {
+      map['location'] = Map<String, dynamic>.from(loc);
+    }
+    return map;
+  }
+
   Future<List<Task>> getAll() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -27,7 +44,7 @@ class TaskLocalRepository {
       for (final item in decoded) {
         if (item is! Map) continue;
         try {
-          tasks.add(Task.fromJson(Map<String, dynamic>.from(item)));
+          tasks.add(Task.fromJson(_normalizeTaskMap(item)));
         } catch (e, st) {
           debugPrint('TaskLocalRepository: item ignorado: $e\n$st');
         }
@@ -49,6 +66,9 @@ class TaskLocalRepository {
       throw StateError('Não foi possível gravar as tarefas no dispositivo.');
     }
   }
+
+  /// Grava a lista completa — usado pelo [TaskStore] após mutações em memória.
+  Future<void> saveAll(List<Task> tasks) => _saveAll(tasks);
 
   Future<void> addTask(Task task) async {
     final all = await getAll();
@@ -76,21 +96,37 @@ class TaskLocalRepository {
     await _saveAll(all);
   }
 
+  Future<void> markTaskDeleted(String taskId) async {
+    final all = await getAll();
+    final index = all.indexWhere((t) => t.id == taskId);
+    if (index < 0) return;
+
+    all[index] = all[index].copyWith(
+      deleted: true,
+      lastUpdated: DateTime.now(),
+    );
+    await _saveAll(all);
+  }
+
   Future<List<Task>> getByDate(String dataYmd) async {
     final all = await getAll();
     return all.where((t) => !t.deleted && t.data == dataYmd).toList();
   }
 
-  /// Tarefas de hoje — com fallback igual ao [tasksComponent.jsx] do web.
-  Future<List<Task>> getTasksForToday(DateTime now) async {
+  /// Tarefas de hoje + total salvo (uma única leitura do disco).
+  Future<({List<Task> today, int totalActive})> loadHomeTasks(DateTime now) async {
     final hoje =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
-    var tasks = await getByDate(hoje);
-    if (tasks.isNotEmpty) return tasks;
-
     final all = await getAll();
-    return all.where((t) => !t.deleted && (t.data == hoje || t.data.isEmpty)).toList();
+    final active = all.where((t) => !t.deleted).toList();
+
+    var today = active.where((t) => t.data == hoje).toList();
+    if (today.isEmpty) {
+      today = active.where((t) => t.data.isEmpty).toList();
+    }
+
+    return (today: today, totalActive: active.length);
   }
 
   Future<List<Task>> getCompleted() async {

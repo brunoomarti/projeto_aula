@@ -8,9 +8,24 @@ class TaskLocation {
   final double lat;
   final double lng;
 
+  /// Aceita `lat`/`lng` ou `latitude`/`longitude` (formato web legado).
+  static TaskLocation? tryParse(dynamic raw) {
+    if (raw is! Map) return null;
+    final map = Map<String, dynamic>.from(raw);
+    try {
+      return TaskLocation.fromJson(map);
+    } catch (e) {
+      debugPrint('TaskLocation.tryParse: $e');
+      return null;
+    }
+  }
+
   factory TaskLocation.fromJson(Map<String, dynamic> json) {
-    final lat = json['lat'];
-    final lng = json['lng'];
+    final lat = json['lat'] ?? json['latitude'];
+    final lng = json['lng'] ?? json['longitude'];
+    if (lat == null || lng == null) {
+      throw FormatException('location sem lat/lng');
+    }
     return TaskLocation(
       lat: (lat is num) ? lat.toDouble() : double.parse('$lat'),
       lng: (lng is num) ? lng.toDouble() : double.parse('$lng'),
@@ -34,6 +49,10 @@ class Task {
     this.lastUpdated,
     this.location,
     this.deleted = false,
+    /// Chave do ícone — ver [TaskIconCatalog.icons]. Null = casa.
+    this.iconKey,
+    /// ARGB da cor de fundo do ícone (`Color.toARGB32()`). Null = padrão do app.
+    this.iconBackgroundArgb,
   });
 
   final String id;
@@ -46,6 +65,8 @@ class Task {
   final DateTime? lastUpdated;
   final TaskLocation? location;
   final bool deleted;
+  final String? iconKey;
+  final int? iconBackgroundArgb;
 
   String get displayDescription {
     final t = descricao.trim();
@@ -63,6 +84,8 @@ class Task {
     DateTime? lastUpdated,
     TaskLocation? location,
     bool? deleted,
+    String? iconKey,
+    int? iconBackgroundArgb,
   }) {
     return Task(
       id: id ?? this.id,
@@ -75,6 +98,8 @@ class Task {
       lastUpdated: lastUpdated ?? this.lastUpdated,
       location: location ?? this.location,
       deleted: deleted ?? this.deleted,
+      iconKey: iconKey ?? this.iconKey,
+      iconBackgroundArgb: iconBackgroundArgb ?? this.iconBackgroundArgb,
     );
   }
 
@@ -86,11 +111,7 @@ class Task {
       return null;
     }
 
-    TaskLocation? loc;
-    final rawLoc = json['location'];
-    if (rawLoc is Map<String, dynamic>) {
-      loc = TaskLocation.fromJson(rawLoc);
-    }
+    final loc = TaskLocation.tryParse(json['location']);
 
     return Task(
       id: '${json['id'] ?? ''}',
@@ -103,7 +124,16 @@ class Task {
       lastUpdated: parseDate(json['lastUpdated']),
       location: loc,
       deleted: json['_deleted'] as bool? ?? false,
+      iconKey: json['iconKey'] as String?,
+      iconBackgroundArgb: _parseIconBackgroundArgb(json['iconBackgroundArgb']),
     );
+  }
+
+  static int? _parseIconBackgroundArgb(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return int.tryParse('$raw');
   }
 
   /// JSON gravado no dispositivo (sem campos de nuvem/sync).
@@ -118,5 +148,8 @@ class Task {
         if (lastUpdated != null) 'lastUpdated': lastUpdated!.toIso8601String(),
         if (location != null) 'location': location!.toJson(),
         '_deleted': deleted,
+        if (iconKey != null) 'iconKey': iconKey,
+        if (iconBackgroundArgb != null)
+          'iconBackgroundArgb': iconBackgroundArgb,
       };
 }

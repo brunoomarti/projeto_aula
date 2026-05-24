@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../features/dashboard/presentation/pages/dashboard_page.dart';
 import '../features/home/presentation/pages/home_page.dart';
 import '../features/profile/presentation/pages/profile_page.dart';
 import 'widgets/app_dock.dart';
@@ -16,18 +15,9 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _currentIndex = 0;
   final _homeKey = GlobalKey<HomePageState>();
-  final _dashboardKey = GlobalKey<DashboardPageState>();
-  final _profileKey = GlobalKey<ProfilePageState>();
 
   void _goToTab(int index) {
     setState(() => _currentIndex = index);
-    if (index == 0) {
-      _homeKey.currentState?.reload();
-    } else if (index == 1) {
-      _dashboardKey.currentState?.reload();
-    } else if (index == 2) {
-      _profileKey.currentState?.reload();
-    }
   }
 
   @override
@@ -39,12 +29,10 @@ class _AppShellState extends State<AppShell> {
         children: [
           HomePage(
             key: _homeKey,
-            onOpenProfile: () => _goToTab(2),
+            onOpenProfile: () => _goToTab(1),
           ),
-          DashboardPage(key: _dashboardKey),
           ProfilePage(
-            key: _profileKey,
-            onNameSaved: () => _homeKey.currentState?.reload(),
+            onNameSaved: () => _homeKey.currentState?.reloadDisplayName(),
           ),
         ],
       ),

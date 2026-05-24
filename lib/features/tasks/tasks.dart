@@ -1,6 +1,12 @@
-export 'data/task_local_repository.dart' show TaskLocalRepository;
+export 'domain/task_icon_catalog.dart';
+export 'presentation/state/task_store.dart';
+export 'presentation/widgets/task_icon_picker_section.dart';
 export 'domain/task.dart';
 export 'presentation/pages/new_task_page.dart';
 export 'presentation/pages/task_detail_page.dart';
 export 'presentation/widgets/complete_input.dart';
+export 'presentation/widgets/confirm_delete_dialog.dart';
+export 'presentation/widgets/swipeable_task_card.dart';
+export 'presentation/widgets/task_section_card.dart';
+export 'presentation/widgets/task_page_header.dart';
 export 'presentation/widgets/task_card.dart';

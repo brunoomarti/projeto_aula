@@ -33,14 +33,11 @@ class UserDock extends StatelessWidget {
           children: [
             Positioned(
               left: 0,
-              child: IconButton(
+              child: _DockCircleIconButton(
                 onPressed: onProfileTap,
                 tooltip: 'Meu perfil',
-                icon: const Icon(
-                  Icons.account_circle_outlined,
-                  size: 48,
-                  color: TaskerColors.mutedText,
-                ),
+                icon: Icons.account_circle_outlined,
+                iconColor: TaskerColors.mutedText,
               ),
             ),
             Column(
@@ -67,17 +64,63 @@ class UserDock extends StatelessWidget {
             ),
             Positioned(
               right: 0,
-              child: IconButton(
+              child: _DockCircleIconButton(
                 onPressed: onAddTaskTap,
                 tooltip: 'Nova tarefa',
-                icon: const Icon(
-                  Icons.add_circle_outline,
-                  size: 32,
-                  color: TaskerColors.primary,
-                ),
+                icon: Icons.add_circle_outline,
+                iconColor: TaskerColors.primary,
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Ícone em círculo branco com padding uniforme (perfil e nova tarefa).
+class _DockCircleIconButton extends StatelessWidget {
+  const _DockCircleIconButton({
+    required this.onPressed,
+    required this.tooltip,
+    required this.icon,
+    required this.iconColor,
+  });
+
+  static const double _iconSize = 30;
+  static const double _padding = 6;
+  static const double _circleSize = _iconSize + _padding * 2;
+
+  final VoidCallback onPressed;
+  final String tooltip;
+  final IconData icon;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: Center(
+              child: Container(
+                width: _circleSize,
+                height: _circleSize,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                padding: const EdgeInsets.all(_padding),
+                child: Icon(icon, size: _iconSize, color: iconColor),
+              ),
+            ),
+          ),
         ),
       ),
     );
