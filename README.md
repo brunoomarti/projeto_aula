@@ -1,14 +1,21 @@
-# tasker-flutter
+# Tasker
 
-App de tarefas em Flutter, inspirado no Tasker web. Armazena tarefas **somente no dispositivo** (sem nuvem).
+App de tarefas em Flutter (pacote Dart: `tasker_project`). Armazena tarefas **somente no dispositivo** (sem nuvem).
+
+## Identificadores
+
+| Plataforma | Valor |
+|------------|--------|
+| Nome exibido | **Tasker** |
+| Pacote Dart | `tasker_project` |
+| Android / iOS | `com.tasker.project` |
 
 ## Funcionalidades
 
 - Home com lista de tarefas do dia
-- Criação de tarefas com geolocalização opcional
+- Magic input com NLP, voz e geolocalização
+- Criação de tarefas com mapa opcional
 - Perfil local (nome no cabeçalho)
-- Tarefas concluídas
-- Dock inferior de navegação
 
 ## Requisitos
 
@@ -21,7 +28,7 @@ flutter pub get
 flutter run
 ```
 
-Após adicionar plugins nativos (`geolocator`, `shared_preferences`), use **restart completo** (`flutter run`), não apenas hot reload.
+Após adicionar plugins nativos (`geolocator`, `shared_preferences`, `speech_to_text`), use **restart completo** (`flutter run`), não apenas hot reload.
 
 ## Testes
 
@@ -31,6 +38,6 @@ flutter test
 
 ## Estrutura
 
-- `lib/features/` — módulos (home, tasks, profile, dashboard)
-- `lib/app/` — shell, tema e dock
-- `tasker-main/` — referência web local (não versionada no Git)
+- `lib/features/` — módulos (home, tasks, profile)
+- `lib/app/` — shell, tema
+- `lib/core/` — NLP, serviços, layout

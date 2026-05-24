@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "projeto_aula" "\0"
+            VALUE "CompanyName", "com.tasker" "\0"
+            VALUE "FileDescription", "Tasker" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "projeto_aula" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "projeto_aula.exe" "\0"
-            VALUE "ProductName", "projeto_aula" "\0"
+            VALUE "InternalName", "tasker_project" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.tasker. All rights reserved." "\0"
+            VALUE "OriginalFilename", "tasker_project.exe" "\0"
+            VALUE "ProductName", "Tasker" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

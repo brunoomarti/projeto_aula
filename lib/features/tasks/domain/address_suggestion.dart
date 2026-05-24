@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'task.dart';
 
-/// Resultado de busca (endereço ou estabelecimento via OSM).
+/// Resultado de busca (endereço ou estabelecimento).
 @immutable
 class AddressSuggestion {
   const AddressSuggestion({
@@ -10,170 +10,173 @@ class AddressSuggestion {
     required this.shortLabel,
     required this.location,
     this.categoryLabel,
+    this.placeId,
   });
 
   final String displayName;
   final String shortLabel;
   final TaskLocation location;
+  final String? placeId;
 
   /// Ex.: "Restaurante", "Loja", "Endereço".
   final String? categoryLabel;
 
-  factory AddressSuggestion.fromNominatim(Map<String, dynamic> json) {
-    final displayName = (json['display_name'] as String?) ?? '';
-    final lat = json['lat'];
-    final lon = json['lon'];
+  bool get hasCoordinates =>
+      location.lat != 0 || location.lng != 0;
 
-    final parts = displayName
-        .split(',')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    final short = parts.length <= 2
-        ? displayName
-        : '${parts[0]}, ${parts[1]}';
+  /// Detalhes do lugar via [GeocodeService] / Places API (New).
+  factory AddressSuggestion.fromGooglePlace(
+    Map<String, dynamic> json, {
+    String? placeId,
+  }) {
+    final name = _textFromGoogleField(json['displayName']);
+    final formatted = (json['formattedAddress'] as String?)?.trim() ?? '';
 
-    final type = json['type'] as String?;
-    final category = json['class'] as String?;
-    final categoryLabel = _labelFromNominatimType(category, type);
+    final loc = json['location'];
+    double lat = 0;
+    double lng = 0;
+    if (loc is Map) {
+      final latVal = loc['latitude'];
+      final lngVal = loc['longitude'];
+      if (latVal is num) lat = latVal.toDouble();
+      if (lngVal is num) lng = lngVal.toDouble();
+    }
+
+    final types = json['types'];
+    final typeList = types is List ? types.map((e) => e.toString()).toList() : <String>[];
+    final primaryType = json['primaryType'] as String?;
+    final categoryLabel = _labelFromGoogleTypes(typeList, primaryType: primaryType);
+
+    final displayName = formatted.isNotEmpty
+        ? (name.isNotEmpty ? '$name, $formatted' : formatted)
+        : name;
+
+    final shortLabel = name.isNotEmpty
+        ? name
+        : (formatted.isNotEmpty ? formatted : displayName);
+
+    final id = placeId ??
+        (json['id'] as String?) ??
+        (json['name'] as String?);
+
+    return AddressSuggestion(
+      displayName: displayName.isNotEmpty ? displayName : shortLabel,
+      shortLabel: shortLabel.isNotEmpty ? shortLabel : displayName,
+      location: TaskLocation(lat: lat, lng: lng),
+      categoryLabel: categoryLabel,
+      placeId: id,
+    );
+  }
+
+  /// Autocomplete sem coordenadas (antes de [GeocodeService.resolveSuggestion]).
+  factory AddressSuggestion.fromGoogleAutocomplete({
+    required String placeId,
+    required String mainText,
+    required String secondaryText,
+    List<dynamic> types = const [],
+  }) {
+    final typeStrings = types.map((e) => e.toString()).toList();
+    final displayName = secondaryText.isNotEmpty
+        ? '$mainText, $secondaryText'
+        : mainText;
 
     return AddressSuggestion(
       displayName: displayName,
-      shortLabel: short,
-      location: TaskLocation(
-        lat: lat is num ? lat.toDouble() : double.parse('$lat'),
-        lng: lon is num ? lon.toDouble() : double.parse('$lon'),
-      ),
-      categoryLabel: categoryLabel,
+      shortLabel: mainText.isNotEmpty ? mainText : displayName,
+      location: const TaskLocation(lat: 0, lng: 0),
+      categoryLabel: _labelFromGoogleTypes(typeStrings),
+      placeId: placeId,
     );
   }
 
-  factory AddressSuggestion.fromPhoton(Map<String, dynamic> properties, List coords) {
-    final lng = coords[0] is num ? (coords[0] as num).toDouble() : double.parse('${coords[0]}');
-    final lat = coords[1] is num ? (coords[1] as num).toDouble() : double.parse('${coords[1]}');
-
-    final name = (properties['name'] as String?)?.trim();
-    final street = (properties['street'] as String?)?.trim();
-    final housenumber = (properties['housenumber'] as String?)?.trim();
-    final city = (properties['city'] as String?)?.trim() ??
-        (properties['town'] as String?)?.trim() ??
-        (properties['village'] as String?)?.trim();
-    final state = (properties['state'] as String?)?.trim();
-
-    final osmKey = properties['osm_key'] as String?;
-    final osmValue = properties['osm_value'] as String?;
-    final categoryLabel = _labelFromOsmTag(osmKey, osmValue);
-
-    final streetLine = [
-      if (street != null && street.isNotEmpty) street,
-      if (housenumber != null && housenumber.isNotEmpty) housenumber,
-    ].join(', ');
-
-    final contextParts = [
-      if (streetLine.isNotEmpty) streetLine,
-      if (city != null && city.isNotEmpty) city,
-      if (state != null && state.isNotEmpty) state,
-    ];
-
-    final displayName = name != null && name.isNotEmpty
-        ? [...contextParts.isEmpty ? [name] : [name, ...contextParts]].join(', ')
-        : contextParts.join(', ');
-
-    final shortLabel = name != null && name.isNotEmpty
-        ? (contextParts.isEmpty
-            ? name
-            : '$name · ${contextParts.take(2).join(', ')}')
-        : displayName;
-
-    return AddressSuggestion(
-      displayName: displayName.isEmpty ? shortLabel : displayName,
-      shortLabel: shortLabel.isEmpty ? displayName : shortLabel,
-      location: TaskLocation(lat: lat, lng: lng),
-      categoryLabel: categoryLabel,
-    );
-  }
-
-  static String? _labelFromNominatimType(String? osmClass, String? type) {
-    if (osmClass == 'amenity' ||
-        osmClass == 'shop' ||
-        osmClass == 'tourism' ||
-        osmClass == 'office' ||
-        osmClass == 'craft' ||
-        osmClass == 'leisure') {
-      return _labelFromOsmTag(osmClass, type);
+  static String _textFromGoogleField(dynamic field) {
+    if (field is Map) {
+      return (field['text'] as String?)?.trim() ?? '';
     }
-    if (osmClass == 'building' && type == 'yes') return 'Estabelecimento';
-    return osmClass == 'place' ? null : 'Endereço';
+    return '';
   }
 
-  static String? _labelFromOsmTag(String? key, String? value) {
-    if (key == null || value == null) return 'Estabelecimento';
+  static String? _labelFromGoogleTypes(
+    List<String> types, {
+    String? primaryType,
+  }) {
+    if (primaryType != null && primaryType.isNotEmpty) {
+      final fromPrimary = _googleTypeLabels[primaryType];
+      if (fromPrimary != null) return fromPrimary;
+    }
 
-    const labels = {
-      'restaurant': 'Restaurante',
-      'cafe': 'Café',
-      'fast_food': 'Fast food',
-      'bar': 'Bar',
-      'pub': 'Pub',
-      'bakery': 'Padaria',
-      'supermarket': 'Supermercado',
-      'convenience': 'Conveniência',
-      'mall': 'Shopping',
-      'clothes': 'Loja de roupas',
-      'hairdresser': 'Salão',
-      'pharmacy': 'Farmácia',
-      'hospital': 'Hospital',
-      'clinic': 'Clínica',
-      'dentist': 'Dentista',
-      'bank': 'Banco',
-      'atm': 'Caixa eletrônico',
-      'fuel': 'Posto',
-      'car': 'Concessionária',
-      'car_repair': 'Oficina',
-      'hotel': 'Hotel',
-      'motel': 'Motel',
-      'hostel': 'Hostel',
-      'gym': 'Academia',
-      'school': 'Escola',
-      'university': 'Universidade',
-      'kindergarten': 'Creche',
-      'library': 'Biblioteca',
-      'cinema': 'Cinema',
-      'theatre': 'Teatro',
-      'museum': 'Museu',
-      'place_of_worship': 'Templo',
-      'parking': 'Estacionamento',
-      'marketplace': 'Mercado',
-      'beauty': 'Beleza',
-      'electronics': 'Eletrônicos',
-      'furniture': 'Móveis',
-      'hardware': 'Material de construção',
-      'pet': 'Pet shop',
-      'veterinary': 'Veterinário',
-      'laundry': 'Lavanderia',
-      'dry_cleaning': 'Lavanderia',
-      'office': 'Escritório',
-      'company': 'Empresa',
-      'yes': 'Comércio',
+    for (final type in types) {
+      final label = _googleTypeLabels[type];
+      if (label != null) return label;
+    }
+
+    const establishmentHints = {
+      'establishment',
+      'point_of_interest',
+      'store',
+      'food',
     };
-
-    if (labels.containsKey(value)) return labels[value];
-
-    switch (key) {
-      case 'shop':
-        return 'Loja';
-      case 'amenity':
-        return 'Estabelecimento';
-      case 'tourism':
-        return 'Turismo';
-      case 'leisure':
-        return 'Lazer';
-      case 'office':
-        return 'Empresa';
-      case 'craft':
-        return 'Comércio';
-      default:
-        return 'Estabelecimento';
+    if (types.any(establishmentHints.contains)) {
+      return 'Estabelecimento';
     }
+
+    if (types.contains('street_address') ||
+        types.contains('route') ||
+        types.contains('premise') ||
+        types.contains('subpremise')) {
+      return 'Endereço';
+    }
+
+    return types.isEmpty ? null : 'Endereço';
   }
+
+  static const _googleTypeLabels = {
+    'restaurant': 'Restaurante',
+    'cafe': 'Café',
+    'coffee_shop': 'Café',
+    'bakery': 'Padaria',
+    'bar': 'Bar',
+    'meal_takeaway': 'Delivery',
+    'meal_delivery': 'Delivery',
+    'fast_food_restaurant': 'Fast food',
+    'supermarket': 'Supermercado',
+    'grocery_store': 'Mercado',
+    'convenience_store': 'Conveniência',
+    'shopping_mall': 'Shopping',
+    'clothing_store': 'Loja de roupas',
+    'pharmacy': 'Farmácia',
+    'drugstore': 'Farmácia',
+    'hospital': 'Hospital',
+    'doctor': 'Clínica',
+    'dentist': 'Dentista',
+    'bank': 'Banco',
+    'atm': 'Caixa eletrônico',
+    'gas_station': 'Posto',
+    'car_repair': 'Oficina',
+    'car_dealer': 'Concessionária',
+    'lodging': 'Hotel',
+    'gym': 'Academia',
+    'school': 'Escola',
+    'university': 'Universidade',
+    'library': 'Biblioteca',
+    'movie_theater': 'Cinema',
+    'museum': 'Museu',
+    'parking': 'Estacionamento',
+    'beauty_salon': 'Beleza',
+    'hair_care': 'Salão',
+    'pet_store': 'Pet shop',
+    'veterinary_care': 'Veterinário',
+    'laundry': 'Lavanderia',
+    'electronics_store': 'Eletrônicos',
+    'furniture_store': 'Móveis',
+    'hardware_store': 'Material de construção',
+    'insurance_agency': 'Seguros',
+    'real_estate_agency': 'Imobiliária',
+    'lawyer': 'Advocacia',
+    'accounting': 'Contabilidade',
+    'post_office': 'Correios',
+    'bus_station': 'Rodoviária',
+    'train_station': 'Estação',
+    'airport': 'Aeroporto',
+  };
 }

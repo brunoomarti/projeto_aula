@@ -1,6 +1,9 @@
 # Projeto de referência web (não versionar)
 /tasker-main/
 
+# Segredos locais (copie de .env.example)
+.env
+
 # Miscellaneous
 *.class
 *.log

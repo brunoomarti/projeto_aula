@@ -11,6 +11,7 @@ class TaskPageHeader extends StatelessWidget {
     required this.subtitle,
     this.onBack,
     this.trailing,
+    this.showBack = true,
   });
 
   final String title;
@@ -18,19 +19,25 @@ class TaskPageHeader extends StatelessWidget {
   final VoidCallback? onBack;
   final Widget? trailing;
 
+  /// Quando `false`, oculta o botão voltar (ex.: abas do shell).
+  final bool showBack;
+
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 20, 12),
+      padding: EdgeInsets.fromLTRB(showBack ? 4 : 28, 12, 24, 14),
       child: Row(
         children: [
-          IconButton(
-            onPressed: onBack,
-            icon: const Icon(Icons.arrow_back_rounded),
-            color: TaskerColors.primaryText,
-            tooltip: 'Voltar',
-          ),
-          const SizedBox(width: 4),
+          if (showBack)
+            IconButton(
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back_rounded),
+              color: TaskerColors.primaryText,
+              tooltip: 'Voltar',
+            )
+          else
+            const SizedBox.shrink(),
+          if (showBack) const SizedBox(width: 4),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -46,6 +53,7 @@ class TaskPageHeader extends StatelessWidget {
                     height: 1.1,
                   ),
                 ),
+                const SizedBox(height: 6),
                 Text(
                   subtitle,
                   style: const TextStyle(
@@ -72,12 +80,14 @@ class TaskPageHeaderBar extends StatelessWidget {
     required this.subtitle,
     this.onBack,
     this.trailing,
+    this.showBack = true,
   });
 
   final String title;
   final String subtitle;
   final VoidCallback? onBack;
   final Widget? trailing;
+  final bool showBack;
 
   @override
   Widget build(BuildContext context) {
@@ -99,6 +109,7 @@ class TaskPageHeaderBar extends StatelessWidget {
                     subtitle: subtitle,
                     onBack: onBack,
                     trailing: trailing,
+                    showBack: showBack,
                   ),
                 ),
                 TaskerResponsiveContent(

@@ -70,22 +70,42 @@ class TaskStore extends ChangeNotifier {
     return hours * 60 + minutes;
   }
 
-  /// Tarefas de hoje, ordenadas (pendentes antes, depois por hora).
-  List<Task> todayTasks([DateTime? now]) {
-    final hoje = formatDateYmd(now ?? DateTime.now());
-    var today = activeTasks.where((t) => t.data == hoje).toList();
-    if (today.isEmpty) {
-      today = activeTasks.where((t) => t.data.isEmpty).toList();
-    }
+  static DateTime dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
 
-    today.sort((a, b) {
+  static void _sortTasksByDay(List<Task> list) {
+    list.sort((a, b) {
       if (a.done != b.done) return (a.done ? 1 : 0) - (b.done ? 1 : 0);
       final byHora = horaSortKey(a.hora).compareTo(horaSortKey(b.hora));
       if (byHora != 0) return byHora;
       return a.id.compareTo(b.id);
     });
-    return today;
   }
+
+  /// Tarefas de um dia (`yyyy-MM-dd`), ordenadas (pendentes antes, depois por hora).
+  ///
+  /// Para o dia atual, tarefas sem data também entram na lista (legado).
+  List<Task> tasksForDate(DateTime date, {DateTime? now}) {
+    final ymd = formatDateYmd(date);
+    final hoje = formatDateYmd(now ?? DateTime.now());
+    var list = activeTasks.where((t) => t.data == ymd).toList();
+    if (list.isEmpty && ymd == hoje) {
+      list = activeTasks.where((t) => t.data.isEmpty).toList();
+    }
+    _sortTasksByDay(list);
+    return list;
+  }
+
+  /// Resumo de conclusão das tarefas de um dia.
+  ({int total, int completed}) taskStatsForDate(DateTime date, {DateTime? now}) {
+    final tasks = tasksForDate(date, now: now);
+    final completed = tasks.where((t) => t.done).length;
+    return (total: tasks.length, completed: completed);
+  }
+
+  /// Tarefas de hoje, ordenadas (pendentes antes, depois por hora).
+  List<Task> todayTasks([DateTime? now]) =>
+      tasksForDate(now ?? DateTime.now(), now: now);
 
   /// Tarefas concluídas, mais recentes por hora primeiro.
   List<Task> get completedTasks {

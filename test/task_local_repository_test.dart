@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:projeto_aula/features/tasks/domain/task.dart';
-import 'package:projeto_aula/features/tasks/data/task_local_repository.dart';
+import 'package:tasker_project/features/tasks/domain/task.dart';
+import 'package:tasker_project/features/tasks/data/task_local_repository.dart';
 
 void main() {
   setUp(() async {

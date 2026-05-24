@@ -6,15 +6,23 @@ import 'package:provider/provider.dart';
 import '../../../../app/theme/tasker_colors.dart';
 import '../../../../core/layout/tasker_breakpoints.dart';
 import '../../../../core/services/user_local_service.dart';
+import '../../../profile/presentation/pages/profile_page.dart';
 import '../../../tasks/tasks.dart';
 import '../widgets/animated_task_list.dart';
+import '../widgets/home_day_selector.dart';
+import '../widgets/home_new_task_button.dart';
+import '../widgets/magic_task_input.dart';
 import '../widgets/user_dock.dart';
+
+/// Espaço entre header, lista e magic input.
+const _kHomeSectionGap = 16.0;
+
+/// Espaço vertical ao redor do seletor de dias (menor — sombra já tem margem interna).
+const _kDaySelectorGap = 10.0;
 
 /// Home do Tasker: [UserDock] + lista de tarefas de hoje ([TaskStore] em memória).
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.onOpenProfile});
-
-  final VoidCallback onOpenProfile;
+  const HomePage({super.key});
 
   @override
   State<HomePage> createState() => HomePageState();
@@ -22,6 +30,7 @@ class HomePage extends StatefulWidget {
 
 class HomePageState extends State<HomePage> {
   String? _displayName;
+  late DateTime _selectedDay;
 
   final Map<String, bool> _completionFlash = {};
   final Map<String, Timer> _flashTimers = {};
@@ -33,6 +42,7 @@ class HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _selectedDay = TaskStore.dateOnly(DateTime.now());
     reloadDisplayName();
   }
 
@@ -59,6 +69,18 @@ class HomePageState extends State<HomePage> {
         _flashTimers.remove(id);
       });
     });
+  }
+
+  Future<void> _openProfile() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => ProfilePage(
+          onNameSaved: reloadDisplayName,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await reloadDisplayName();
   }
 
   Future<void> _openNewTask() async {
@@ -114,23 +136,32 @@ class HomePageState extends State<HomePage> {
     _closeSwipe();
   }
 
+  bool get _isSelectedToday {
+    final today = TaskStore.dateOnly(DateTime.now());
+    return _selectedDay.year == today.year &&
+        _selectedDay.month == today.month &&
+        _selectedDay.day == today.day;
+  }
+
   Widget _emptyState(int totalSaved) {
-    if (totalSaved > 0) {
-      return const Center(
+    final dayLabel = _isSelectedToday ? 'hoje' : 'este dia';
+
+    if (totalSaved > 0 && _isSelectedToday) {
+      return Center(
         child: Text(
-          'Nenhuma tarefa para hoje.\n'
+          'Nenhuma tarefa para $dayLabel.\n'
           'Você tem tarefas salvas em outras datas — '
           'confira a data ao criar uma nova tarefa.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: TaskerColors.secondaryText),
+          style: const TextStyle(color: TaskerColors.secondaryText),
         ),
       );
     }
 
-    return const Center(
+    return Center(
       child: Text(
-        'Nenhuma tarefa para hoje.',
-        style: TextStyle(color: TaskerColors.secondaryText),
+        'Nenhuma tarefa para $dayLabel.',
+        style: const TextStyle(color: TaskerColors.secondaryText),
       ),
     );
   }
@@ -208,13 +239,13 @@ class HomePageState extends State<HomePage> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final tasks = store.todayTasks();
+    final tasks = store.tasksForDate(_selectedDay);
     if (tasks.isEmpty) {
       return _emptyState(store.totalActiveCount);
     }
 
     return AnimatedTaskList<Task>(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.only(bottom: 8),
       items: tasks,
       itemId: (task) => task.id,
       itemBuilder: (context, task) => _buildSwipeableTaskCard(task, store),
@@ -224,7 +255,7 @@ class HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<TaskStore>();
-    final tasks = store.todayTasks();
+    final tasks = store.tasksForDate(_selectedDay);
     final confirmTask = _confirmDeleteId == null
         ? null
         : tasks.cast<Task?>().firstWhere(
@@ -239,26 +270,63 @@ class HomePageState extends State<HomePage> {
             builder: (context, constraints) {
               final width = constraints.maxWidth;
               final pagePadding = TaskerBreakpoints.pagePadding(width);
+              final horizontalPad = EdgeInsets.fromLTRB(
+                pagePadding.left,
+                0,
+                pagePadding.right,
+                0,
+              );
+
               return Padding(
-                padding: EdgeInsets.fromLTRB(
-                  pagePadding.left,
-                  16,
-                  pagePadding.right,
-                  0,
-                ),
-                child: TaskerResponsiveContent(
-                  width: width,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      UserDock(
-                        displayName: _displayName,
-                        onProfileTap: widget.onOpenProfile,
-                        onAddTaskTap: _openNewTask,
+                padding: const EdgeInsets.only(top: 16, bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: horizontalPad,
+                      child: TaskerResponsiveContent(
+                        width: width,
+                        child: UserDock(
+                          displayName: _displayName,
+                          selectedDate: _selectedDay,
+                          onProfileTap: _openProfile,
+                        ),
                       ),
-                      Expanded(child: _buildTaskList(store)),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: _kDaySelectorGap),
+                    HomeDaySelector(
+                      selectedDate: _selectedDay,
+                      edgeFadeWidth: pagePadding.left * 1.75,
+                      onDateSelected: (date) {
+                        setState(
+                          () => _selectedDay = TaskStore.dateOnly(date),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: _kDaySelectorGap),
+                    Expanded(
+                      child: Padding(
+                        padding: horizontalPad,
+                        child: TaskerResponsiveContent(
+                          width: width,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              HomeNewTaskButton(onPressed: _openNewTask),
+                              const SizedBox(height: _kHomeSectionGap),
+                              Expanded(child: _buildTaskList(store)),
+                              const SizedBox(height: _kHomeSectionGap),
+                              MagicTaskInput(
+                                placeholder:
+                                    'Digite ou fale o que você quer fazer…',
+                                onCreated: () {},
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },

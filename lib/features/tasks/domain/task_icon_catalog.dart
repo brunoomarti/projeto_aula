@@ -102,6 +102,11 @@ abstract final class TaskIconCatalog {
       label: 'Mercado',
     ),
     TaskIconOption(
+      key: 'shopping',
+      icon: Icons.shopping_bag_outlined,
+      label: 'Compras',
+    ),
+    TaskIconOption(
       key: 'food',
       icon: Icons.restaurant_outlined,
       label: 'Comida',
@@ -131,6 +136,26 @@ abstract final class TaskIconCatalog {
       key: 'repair',
       icon: Icons.build_outlined,
       label: 'Manutenção',
+    ),
+    TaskIconOption(
+      key: 'clothing',
+      icon: Icons.checkroom_outlined,
+      label: 'Roupa',
+    ),
+    TaskIconOption(
+      key: 'beauty',
+      icon: Icons.spa_outlined,
+      label: 'Beleza',
+    ),
+    TaskIconOption(
+      key: 'faith',
+      icon: Icons.church_outlined,
+      label: 'Fé',
+    ),
+    TaskIconOption(
+      key: 'task',
+      icon: Icons.task_alt_outlined,
+      label: 'Tarefa',
     ),
   ];
 

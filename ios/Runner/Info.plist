@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Projeto Aula</string>
+	<string>Tasker</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>projeto_aula</string>
+	<string>Tasker</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -61,6 +61,10 @@
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>O Tasker usa sua localização ao criar tarefas.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>O Tasker usa o microfone para criar tarefas por voz.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>O Tasker usa reconhecimento de voz para entender suas tarefas.</string>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

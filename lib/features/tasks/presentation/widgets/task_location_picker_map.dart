@@ -218,7 +218,7 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
                           TileLayer(
                             urlTemplate:
                                 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'com.example.projeto_aula',
+                            userAgentPackageName: 'com.tasker.project',
                             keepBuffer: 2,
                           ),
                         ],
@@ -319,6 +319,7 @@ class _AddressSearchFieldState extends State<_AddressSearchField> {
   final _focusNode = FocusNode();
 
   bool _loading = false;
+  bool _resolvingSelection = false;
   bool _suppressSearch = false;
   List<AddressSuggestion> _suggestions = [];
   Timer? _debounce;
@@ -366,7 +367,7 @@ class _AddressSearchFieldState extends State<_AddressSearchField> {
   }
 
   Future<void> _fetch(String query) async {
-    final results = await GeocodeService.searchAddresses(
+    final results = await GeocodeService.autocompletePlaces(
       query,
       near: widget.locationForBias?.call(),
     );
@@ -379,12 +380,23 @@ class _AddressSearchFieldState extends State<_AddressSearchField> {
     });
   }
 
-  void _select(AddressSuggestion item) {
+  Future<void> _select(AddressSuggestion item) async {
     _suppressSearch = true;
     _controller.text = item.shortLabel;
     _focusNode.unfocus();
-    setState(() => _suggestions = []);
-    widget.onSelected(item);
+    setState(() {
+      _suggestions = [];
+      _resolvingSelection = true;
+    });
+
+    final resolved = await GeocodeService.resolveSuggestion(item);
+    if (!mounted) return;
+
+    setState(() => _resolvingSelection = false);
+
+    if (resolved == null || !resolved.hasCoordinates) return;
+
+    widget.onSelected(resolved);
   }
 
   @override
@@ -403,7 +415,7 @@ class _AddressSearchFieldState extends State<_AddressSearchField> {
             textInputAction: TextInputAction.search,
             decoration: TaskerFieldDecoration.decoration(
               hintText: 'Rua, loja, restaurante, shopping...',
-              suffixIcon: _loading
+              suffixIcon: (_loading || _resolvingSelection)
                   ? const Padding(
                       padding: EdgeInsets.all(12),
                       child: SizedBox(

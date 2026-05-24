@@ -1,20 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../../../../app/theme/tasker_colors.dart';
+import '../../../../core/widgets/profile_initials_avatar.dart';
+import '../utils/selected_day_label.dart';
 
 /// Cabeçalho da home — equivalente a [tasker-main/src/view/components/userDock.jsx].
 class UserDock extends StatelessWidget {
   const UserDock({
     super.key,
     this.displayName,
+    required this.selectedDate,
     required this.onProfileTap,
-    required this.onAddTaskTap,
   });
 
   final String? displayName;
+  final DateTime selectedDate;
   final VoidCallback onProfileTap;
-  final VoidCallback onAddTaskTap;
+
+  static const double _sideButtonSize = 56;
+  static const double _avatarSize = 52;
 
   @override
   Widget build(BuildContext context) {
@@ -22,22 +26,23 @@ class UserDock extends StatelessWidget {
         ? displayName!.trim()
         : 'Usuário';
 
-    final dateLabel = DateFormat("d 'de' MMMM", 'pt_BR').format(DateTime.now());
+    final dateLabel = SelectedDayLabel.format(selectedDate);
+    final initials = profileInitialsFromName(name);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 40),
+      padding: EdgeInsets.zero,
       child: SizedBox(
-        height: 56,
+        height: _sideButtonSize,
         child: Stack(
           alignment: Alignment.center,
           children: [
             Positioned(
               left: 0,
-              child: _DockCircleIconButton(
+              child: _DockProfileButton(
+                initials: initials,
                 onPressed: onProfileTap,
-                tooltip: 'Meu perfil',
-                icon: Icons.account_circle_outlined,
-                iconColor: TaskerColors.mutedText,
+                size: _sideButtonSize,
+                avatarSize: _avatarSize,
               ),
             ),
             Column(
@@ -46,8 +51,9 @@ class UserDock extends StatelessWidget {
                 Text(
                   name,
                   style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 20,
+                    height: 1.2,
                     color: TaskerColors.primaryText,
                   ),
                   textAlign: TextAlign.center,
@@ -62,13 +68,11 @@ class UserDock extends StatelessWidget {
                 ),
               ],
             ),
-            Positioned(
+            const Positioned(
               right: 0,
-              child: _DockCircleIconButton(
-                onPressed: onAddTaskTap,
-                tooltip: 'Nova tarefa',
-                icon: Icons.add_circle_outline,
-                iconColor: TaskerColors.primary,
+              child: SizedBox(
+                width: _sideButtonSize,
+                height: _sideButtonSize,
               ),
             ),
           ],
@@ -78,46 +82,35 @@ class UserDock extends StatelessWidget {
   }
 }
 
-/// Ícone em círculo branco com padding uniforme (perfil e nova tarefa).
-class _DockCircleIconButton extends StatelessWidget {
-  const _DockCircleIconButton({
+class _DockProfileButton extends StatelessWidget {
+  const _DockProfileButton({
+    required this.initials,
     required this.onPressed,
-    required this.tooltip,
-    required this.icon,
-    required this.iconColor,
+    required this.size,
+    required this.avatarSize,
   });
 
-  static const double _iconSize = 30;
-  static const double _padding = 6;
-  static const double _circleSize = _iconSize + _padding * 2;
-
+  final String initials;
   final VoidCallback onPressed;
-  final String tooltip;
-  final IconData icon;
-  final Color iconColor;
+  final double size;
+  final double avatarSize;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: tooltip,
+      message: 'Meu perfil',
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onPressed,
           customBorder: const CircleBorder(),
           child: SizedBox(
-            width: 48,
-            height: 48,
+            width: size,
+            height: size,
             child: Center(
-              child: Container(
-                width: _circleSize,
-                height: _circleSize,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                ),
-                padding: const EdgeInsets.all(_padding),
-                child: Icon(icon, size: _iconSize, color: iconColor),
+              child: ProfileInitialsAvatar(
+                initials: initials,
+                size: avatarSize,
               ),
             ),
           ),

@@ -1,11 +1,11 @@
 {
-    "name": "projeto_aula",
-    "short_name": "projeto_aula",
+    "name": "Tasker",
+    "short_name": "Tasker",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Tasker — app de tarefas com NLP e voz.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
