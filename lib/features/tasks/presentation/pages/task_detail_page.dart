@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../../../app/theme/tasker_card_style.dart';
 import '../../../../app/theme/tasker_colors.dart';
 import '../../../../core/layout/tasker_breakpoints.dart';
+import '../../../../core/nlp/extract_errand_list_pt_br.dart';
 import '../../../../core/services/geocode_service.dart';
 import '../../domain/task.dart';
 import '../state/task_store.dart';
@@ -197,6 +198,8 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     final isWide = TaskerBreakpoints.isWide(width);
     final hasLocation = task.location != null;
     final splitLayout = isWide && hasLocation;
+    final errandItems = parseErrandListFromDescription(task.descricao);
+    final hasErrandList = errandItems.isNotEmpty;
 
     final mainColumn = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -211,7 +214,13 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
           header: TaskStatusBadge(done: task.done),
           titleMaxLines: 2,
           descriptionMaxLines: 3,
+          descriptionOverride:
+              hasErrandList ? errandListSummaryLabel : null,
         ),
+        if (hasErrandList) ...[
+          const SizedBox(height: TaskerCardStyle.sectionSpacing),
+          _buildErrandListCard(errandItems),
+        ],
         const SizedBox(height: TaskerCardStyle.sectionSpacing),
         _buildDoneTile(task),
         const SizedBox(height: TaskerCardStyle.sectionSpacing),
@@ -237,6 +246,46 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     }
 
     return mainColumn;
+  }
+
+  Widget _buildErrandListCard(List<String> items) {
+    return TaskSectionCard(
+      title: errandListSummaryLabel,
+      icon: Icons.checklist_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '•',
+                  style: TextStyle(
+                    fontSize: 15,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                    color: TaskerColors.primary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    items[i],
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 1.35,
+                      color: TaskerColors.primaryText,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _buildDoneTile(Task task) {

@@ -55,5 +55,58 @@ void main() {
       expect(r.dateYmd, ymd(now));
       expect(r.timeHHMM, '12:00');
     });
+
+    test('reuniao dia 29 na sapion nova educacao', () {
+      final r = extractWhenPTBR(
+        'reuniao dia 29 na sapion nova educacao',
+        now,
+      );
+
+      expect(r.dateYmd, '2026-05-29');
+      expect(r.timeHHMM, isNull);
+      expect(r.title.toLowerCase(), contains('reuni'));
+      expect(r.title.toLowerCase(), isNot(contains('dia')));
+      expect(r.title.toLowerCase(), isNot(contains('29')));
+    });
+
+    test('consulta no dia 15', () {
+      final r = extractWhenPTBR('consulta no dia 15', now);
+
+      // Referência 24/05 → dia 15 já passou no mês → junho.
+      expect(r.dateYmd, '2026-06-15');
+      expect(r.title.toLowerCase(), contains('consulta'));
+      expect(r.title.toLowerCase(), isNot(contains('dia')));
+    });
+
+    test('dia 20 apos referencia usa proximo mes', () {
+      final r = extractWhenPTBR('dentista dia 20', now);
+
+      expect(r.dateYmd, '2026-06-20');
+    });
+
+    test('dia 29 as 14h mantem hora e data', () {
+      final r = extractWhenPTBR('reuniao dia 29 as 14h', now);
+
+      expect(r.dateYmd, '2026-05-29');
+      expect(r.timeHHMM, '14:00');
+    });
+  });
+
+  group('resolveDayOfMonth', () {
+    final ref = DateTime(2026, 5, 24);
+
+    test('mesmo mes futuro', () {
+      expect(
+        resolveDayOfMonth(29, ref),
+        DateTime(2026, 5, 29),
+      );
+    });
+
+    test('proximo mes quando dia ja passou', () {
+      expect(
+        resolveDayOfMonth(20, ref),
+        DateTime(2026, 6, 20),
+      );
+    });
   });
 }

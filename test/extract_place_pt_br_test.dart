@@ -35,6 +35,16 @@ void main() {
       expect(extractPlacePTBR('ir no mercado amanhã'), isNull);
     });
 
+    test('supermercado genérico com lista de compras', () {
+      final p = extractPlacePTBR(
+        'ir no supermercado de tarde comprar mamão banana e açúcar',
+      );
+      expect(p, isNotNull);
+      expect(p!.searchQuery.toLowerCase(), 'supermercado');
+      expect(p.matchedText.toLowerCase(), 'no supermercado');
+      expect(p.skipGeocoding, isTrue);
+    });
+
     test('mercado com nome próprio', () {
       final p = extractPlacePTBR('compras no mercado Atacadão hoje');
       expect(p, isNotNull);

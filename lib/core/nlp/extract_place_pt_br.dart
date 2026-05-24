@@ -6,6 +6,7 @@ class ExtractPlaceResult {
     required this.searchQuery,
     required this.matchedText,
     this.qualifiers = const [],
+    this.skipGeocoding = false,
   });
 
   /// Texto enviado ao geocoder (Google Places).
@@ -16,6 +17,9 @@ class ExtractPlaceResult {
 
   /// Termos extras para desempate (ex.: campus, cidade).
   final List<String> qualifiers;
+
+  /// Tipo genérico sem nome próprio (ex. «supermercado») — não geocodifica.
+  final bool skipGeocoding;
 }
 
 /// Palavras só de tipo genérico — sem nome próprio, não geocodifica.
@@ -75,11 +79,24 @@ const _kGenericPlaceTokens = {
   'shopping',
 };
 
+/// Verbos de lista/compras — não fazem parte do nome do local.
+const _kErrandVerbTokens = {
+  'comprar',
+  'pegar',
+  'buscar',
+  'levantar',
+  'adquirir',
+  'fazer',
+};
+
 /// Limite antes de data/hora ou fim de frase ao capturar local.
 const _kPlaceStopLookahead =
     r'(?=(?:'
-    r'\s+(?:hoje|amanha|depois|agora|cedo|tarde|noite|manha|madrugada|almoco|'
-    r'as|às|a\s+\d|daqui|para|pra|pro|p\/|com|que|e\s+as|e\s+a|e\s+\d)'
+    r'\s+de\s+(?:tarde|manha|noite|madrugada|almoco|cedo)\b'
+    r'|\s+(?:hoje|amanha|depois|agora|cedo|tarde|noite|manha|madrugada|almoco|'
+    r'as|às|a\s+\d|daqui|para|pra|pro|p\/|comprar|pegar|buscar|levantar|com|que|'
+    r'e\s+as|e\s+a|e\s+\d)'
+    r'|\s+dia\s+\d{1,2}\b'
     r'|\s+\d{1,2}(?::\d{2})?\s*(?:h|hs|horas?)\b'
     r'|\s+\d{1,2}\s*h\b'
     r'|$))';
@@ -142,6 +159,7 @@ class _PlaceMatch {
     required this.start,
     required this.qualifiers,
     required this.priority,
+    required this.skipGeocoding,
   });
 
   final String searchQuery;
@@ -149,15 +167,35 @@ class _PlaceMatch {
   final int start;
   final List<String> qualifiers;
   final int priority;
+  final bool skipGeocoding;
 }
 
 bool _isTemporalOrGenericWord(String word) {
   const temporal = {
     'hoje', 'amanha', 'depois', 'agora', 'cedo', 'tarde', 'noite', 'manha',
     'madrugada', 'almoco', 'as', 'a', 'daqui', 'para', 'pra', 'com', 'que',
+    'de', 'da', 'do', 'dos', 'das', 'em', 'no', 'na', 'nos', 'nas',
   };
   final w = normPT(word);
   return temporal.contains(w) || _kGenericPlaceTokens.contains(w);
+}
+
+/// Nome próprio inválido após tipo genérico («no supermercado de tarde»).
+bool _isInvalidPlaceProperName(String? name) {
+  if (name == null || name.trim().isEmpty) return true;
+  final tokens = normPT(name).split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+  if (tokens.isEmpty) return true;
+  if (tokens.any(_kErrandVerbTokens.contains)) return true;
+  return tokens.every(_isTemporalOrGenericWord);
+}
+
+String _genericPlaceMatchedText(RegExpMatch m) {
+  final type = m.group(1)?.trim() ?? '';
+  if (type.isEmpty) return m.group(0)?.trim() ?? '';
+  return RegExp(
+    '\\b(?:no|na|nem|em|ao|à|aos|nas|nos)\\s+${RegExp.escape(type)}\\b',
+    caseSensitive: false,
+  ).firstMatch(m.group(0) ?? '')?.group(0)?.trim() ?? type;
 }
 
 bool _isGenericOnly(String phrase) {
@@ -173,6 +211,13 @@ String _trimPlaceCapture(String raw) {
   var s = raw.trim();
   s = s.replaceAll(RegExp(r'[,\.;]+$'), '').trim();
   // Corta lixo temporal — \b evita apagar nomes como "atacadao" (começam com "a").
+  s = s.replaceAll(
+    RegExp(
+      r'\s+(?:de|da|do)\s+(?:tarde|manha|noite|madrugada|almoco|cedo)\b\s*.*$',
+      caseSensitive: false,
+    ),
+    '',
+  );
   s = s.replaceAll(
     RegExp(
       r'\s+(?:hoje|amanha|depois|agora|cedo|tarde|noite|manha|madrugada|'
@@ -305,7 +350,14 @@ _PlaceMatch? _tryPattern(
   if (m == null) return null;
 
   final capture = _sanitizeSearchQuery(buildQuery(m));
-  if (capture.length < 2 || _isGenericOnly(capture)) return null;
+  if (capture.length < 2) return null;
+
+  final isGenericOnly = _isGenericOnly(capture);
+  final hasErrandVerb = RegExp(
+    r'\b(?:comprar|pegar|buscar|levantar|adquirir|fazer\s+compras)\b',
+    caseSensitive: false,
+  ).hasMatch(low);
+  if (isGenericOnly && !hasErrandVerb) return null;
 
   final matched = _trimPlaceCapture(buildMatched(m)).trim();
   if (matched.isEmpty) return null;
@@ -319,6 +371,7 @@ _PlaceMatch? _tryPattern(
     start: m.start,
     qualifiers: qualifiers,
     priority: priority,
+    skipGeocoding: isGenericOnly,
   );
 }
 
@@ -378,6 +431,24 @@ ExtractPlaceResult? extractPlacePTBR(String transcript) {
     buildMatched: (m) => m.group(0) ?? '',
   ));
 
+  // Tipo genérico sem nome próprio: "no supermercado comprar ...".
+  add(_tryPattern(
+    text,
+    low,
+    priority: 86,
+    pattern: RegExp(
+      '\\b(?:no|na|nem|em|ao|à|aos|nas|nos)\\s+'
+      '(mercado|supermercado|padaria|farmacia|farmácia|posto|loja|salao|salão|'
+      'hospital|academia|bar|restaurante|café|cafe|conveniencia|lanchonete|'
+      'shopping|feira|banco|correios|igreja|parque|praia)\\b'
+      '$_kPlaceStopLookahead',
+      unicode: true,
+      caseSensitive: false,
+    ),
+    buildQuery: (m) => m.group(1) ?? '',
+    buildMatched: (m) => _genericPlaceMatchedText(m),
+  ));
+
   // Tipo genérico + nome: "no mercado Atacadão", "na padaria Central".
   add(_tryPattern(
     text,
@@ -387,13 +458,24 @@ ExtractPlaceResult? extractPlacePTBR(String transcript) {
       '\\b(?:no|na|nem|em|ao|à)\\s+'
       '(mercado|supermercado|padaria|farmacia|farmácia|posto|loja|salao|salão|'
       'hospital|academia|bar|restaurante|café|cafe)\\s+'
+      '(?!comprar|pegar|buscar|levantar|adquirir|fazer\\b)'
       '([\\p{L}\\p{N}][\\p{L}\\p{N}\\s\\-]{1,35}?)'
       '$_kPlaceStopLookahead',
       unicode: true,
       caseSensitive: false,
     ),
-    buildQuery: (m) => '${m.group(1)} ${m.group(2)}',
-    buildMatched: (m) => m.group(0) ?? '',
+    buildQuery: (m) {
+      final type = m.group(1)!;
+      final name = m.group(2)?.trim();
+      if (_isInvalidPlaceProperName(name)) return type;
+      return '$type $name';
+    },
+    buildMatched: (m) {
+      if (_isInvalidPlaceProperName(m.group(2)?.trim())) {
+        return _genericPlaceMatchedText(m);
+      }
+      return m.group(0) ?? '';
+    },
   ));
 
   // Estabelecimento nomeado: "no Shopping Vitória", "na Padaria Central".
@@ -460,6 +542,7 @@ ExtractPlaceResult? extractPlacePTBR(String transcript) {
     searchQuery: best.searchQuery,
     matchedText: best.matchedText,
     qualifiers: best.qualifiers,
+    skipGeocoding: best.skipGeocoding,
   );
 }
 

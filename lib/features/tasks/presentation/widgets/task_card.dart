@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../app/theme/tasker_colors.dart';
+import '../../../../core/nlp/extract_errand_list_pt_br.dart';
 import '../../../../core/services/geocode_service.dart';
 import '../../domain/task.dart';
 import '../../domain/task_icon_catalog.dart';
@@ -53,6 +54,7 @@ class TaskCardSurface extends StatelessWidget {
     this.flexibleHeight = false,
     this.titleMaxLines = 1,
     this.descriptionMaxLines = 1,
+    this.descriptionOverride,
   });
 
   final Task task;
@@ -69,6 +71,9 @@ class TaskCardSurface extends StatelessWidget {
   final int titleMaxLines;
   final int descriptionMaxLines;
 
+  /// Substitui [Task.displayDescription] no card (ex.: «Lista de afazeres»).
+  final String? descriptionOverride;
+
   @override
   Widget build(BuildContext context) {
     final content = Padding(
@@ -83,6 +88,7 @@ class TaskCardSurface extends StatelessWidget {
         onToggleDone: onToggleDone,
         titleMaxLines: titleMaxLines,
         descriptionMaxLines: descriptionMaxLines,
+        descriptionOverride: descriptionOverride,
         flexibleHeight: flexibleHeight,
       ),
     );
@@ -141,6 +147,7 @@ class _TaskCardBody extends StatelessWidget {
     required this.flexibleHeight,
     required this.titleMaxLines,
     required this.descriptionMaxLines,
+    this.descriptionOverride,
     this.header,
     this.onToggleDone,
   });
@@ -153,6 +160,7 @@ class _TaskCardBody extends StatelessWidget {
   final bool flexibleHeight;
   final int titleMaxLines;
   final int descriptionMaxLines;
+  final String? descriptionOverride;
   final Widget? header;
   final VoidCallback? onToggleDone;
 
@@ -174,6 +182,7 @@ class _TaskCardBody extends StatelessWidget {
           header: header,
           titleMaxLines: titleMaxLines,
           descriptionMaxLines: descriptionMaxLines,
+          descriptionOverride: descriptionOverride,
         ),
         _FooterRow(
           task: task,
@@ -222,6 +231,7 @@ class _TopBlock extends StatelessWidget {
     required this.pinDescriptionToBottom,
     required this.titleMaxLines,
     required this.descriptionMaxLines,
+    this.descriptionOverride,
     this.header,
   });
 
@@ -230,6 +240,7 @@ class _TopBlock extends StatelessWidget {
   final bool pinDescriptionToBottom;
   final int titleMaxLines;
   final int descriptionMaxLines;
+  final String? descriptionOverride;
   final Widget? header;
 
   @override
@@ -259,7 +270,11 @@ class _TopBlock extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 5),
-        _TaskDescription(task: task, maxLines: descriptionMaxLines),
+        _TaskDescription(
+          task: task,
+          maxLines: descriptionMaxLines,
+          overrideText: descriptionOverride,
+        ),
       ],
     );
   }
@@ -476,18 +491,28 @@ class _TaskTitle extends StatelessWidget {
 }
 
 class _TaskDescription extends StatelessWidget {
-  const _TaskDescription({required this.task, this.maxLines = 1});
+  const _TaskDescription({
+    required this.task,
+    this.maxLines = 1,
+    this.overrideText,
+  });
 
   final Task task;
   final int maxLines;
+  final String? overrideText;
 
   @override
   Widget build(BuildContext context) {
+    final override = overrideText?.trim();
     final description = task.displayDescription;
-    final isPlaceholder = description.isEmpty;
+    final isPlaceholder = override == null && description.isEmpty;
+    final text = override ??
+        (isPlaceholder
+            ? 'Autodescritivo'
+            : _descriptionForDisplay(description, maxLines: maxLines));
 
     return Text(
-      isPlaceholder ? 'Autodescritivo' : description,
+      text,
       style: TextStyle(
         color: TaskCardTokens.secondaryText.withValues(alpha: 0.8),
         fontSize: 12,
@@ -499,6 +524,13 @@ class _TaskDescription extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
     );
   }
+}
+
+String _descriptionForDisplay(String description, {required int maxLines}) {
+  if (maxLines == 1 && isErrandListDescription(description)) {
+    return errandListInlineFromDescription(description);
+  }
+  return description;
 }
 
 class _TaskLocationRow extends StatefulWidget {

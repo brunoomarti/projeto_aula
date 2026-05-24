@@ -154,8 +154,9 @@ class _SwipeableTaskCardState extends State<SwipeableTaskCard>
       widget.onCloseSwipe();
       widget.onToggleDone();
     } else if (shouldOpenRight) {
-      _snapTo(_swipeLockX, velocity: v);
-      widget.onOpenSwipe(widget.task.id, SwipeOpenDirection.right);
+      _snapTo(0, velocity: v);
+      widget.onCloseSwipe();
+      widget.onAskDelete();
     } else {
       _snapTo(0, velocity: v);
       widget.onCloseSwipe();
@@ -192,9 +193,6 @@ class _SwipeableTaskCardState extends State<SwipeableTaskCard>
 
   @override
   Widget build(BuildContext context) {
-    final isOpenRight =
-        widget.isOpen && widget.openDir == SwipeOpenDirection.right;
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final cardHeight = constraints.maxHeight.isFinite
@@ -214,8 +212,6 @@ class _SwipeableTaskCardState extends State<SwipeableTaskCard>
                     icon: Icons.delete_outline,
                     iconColor: Colors.white,
                     cardHeight: cardHeight,
-                    onTap: widget.onAskDelete,
-                    enabled: isOpenRight,
                   ),
                 ),
               ),
@@ -229,7 +225,6 @@ class _SwipeableTaskCardState extends State<SwipeableTaskCard>
                     icon: Icons.check,
                     iconColor: Colors.white,
                     cardHeight: cardHeight,
-                    visualOnly: true,
                   ),
                 ),
               ),
@@ -282,9 +277,6 @@ class _SwipeActionButton extends StatelessWidget {
     required this.icon,
     required this.iconColor,
     required this.cardHeight,
-    this.onTap,
-    this.enabled = false,
-    this.visualOnly = false,
   });
 
   final double progress;
@@ -292,33 +284,24 @@ class _SwipeActionButton extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final double cardHeight;
-  final VoidCallback? onTap;
-  final bool enabled;
-  final bool visualOnly;
 
   @override
   Widget build(BuildContext context) {
     final width = _lerp(48, 70, progress);
     final height = _lerp(cardHeight * 0.84, cardHeight * 0.92, progress);
     final radius = _lerp(24, 16, progress);
-    final opacity = progress;
-    final interactive = !visualOnly && enabled && onTap != null;
 
     return IgnorePointer(
-      ignoring: !interactive,
       child: Opacity(
-        opacity: opacity,
+        opacity: progress,
         child: Material(
           color: color,
           borderRadius: BorderRadius.circular(radius),
           clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: interactive ? onTap : null,
-            child: SizedBox(
-              width: width,
-              height: height,
-              child: Icon(icon, color: iconColor, size: 22),
-            ),
+          child: SizedBox(
+            width: width,
+            height: height,
+            child: Icon(icon, color: iconColor, size: 22),
           ),
         ),
       ),

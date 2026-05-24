@@ -200,6 +200,53 @@ DateTime nextWeekday(DateTime from, int targetDow) {
   return _addDays(from, delta);
 }
 
+/// Resolve «dia 15» relativo à data de referência (mês atual ou próximo).
+DateTime? resolveDayOfMonth(int day, DateTime ref) {
+  if (day < 1 || day > 31) return null;
+
+  var yyyy = ref.year;
+  var mm = ref.month;
+  var candidate = DateTime(yyyy, mm, day);
+  if (candidate.month != mm) return null;
+
+  final refDay = DateTime(ref.year, ref.month, ref.day);
+  if (candidate.isBefore(refDay)) {
+    mm += 1;
+    if (mm > 12) {
+      mm = 1;
+      yyyy += 1;
+    }
+    candidate = DateTime(yyyy, mm, day);
+    if (candidate.month != mm) return null;
+  }
+
+  return candidate;
+}
+
+bool _isDayOfMonthContext(String low, int digitStart) {
+  if (digitStart <= 0) return false;
+  final prefix = low.substring(0, digitStart);
+  return RegExp(r'\bdia\s*$').hasMatch(prefix);
+}
+
+bool _isValidTimeMatch(String low, RegExpMatch match) {
+  if (_isDayOfMonthContext(low, match.start)) return false;
+
+  final hhRaw = match.group(2);
+  if (hhRaw == null) return true;
+
+  final hh = int.tryParse(hhRaw);
+  if (hh == null) return false;
+
+  final fragment = match.group(0) ?? '';
+  final hasExplicitTime = RegExp(r'[:h]').hasMatch(fragment) ||
+      RegExp(r'\b(?:h|hs|horas?)\b').hasMatch(fragment) ||
+      RegExp(r'\b(?:as|a|às|à)\s').hasMatch(fragment);
+
+  if (hh > 23 && !hasExplicitTime) return false;
+  return true;
+}
+
 class DateParseResult {
   const DateParseResult({required this.date, required this.match});
 
@@ -243,6 +290,15 @@ DateParseResult? parseExplicitDate(String text, DateTime now) {
       if (d.month == mm) {
         return DateParseResult(date: d, match: m.group(0)!);
       }
+    }
+  }
+
+  m = RegExp(r'\b(?:no\s+)?dia\s+(\d{1,2})\b').firstMatch(low);
+  if (m != null) {
+    final dd = int.parse(m.group(1)!);
+    final resolved = resolveDayOfMonth(dd, now);
+    if (resolved != null) {
+      return DateParseResult(date: resolved, match: m.group(0)!);
     }
   }
 
@@ -389,7 +445,7 @@ TimeParseResult? parseTime(String text) {
     r'(?:\b(as|a)\s*)?(\d{1,2})\s*(?:h|hs|horas?)\s*(?:e\s*([a-z0-9\s]+))?',
     caseSensitive: false,
   ).firstMatch(low);
-  if (m != null) {
+  if (m != null && _isValidTimeMatch(low, m)) {
     var hh = int.parse(m.group(2)!);
     var mm = 0;
     if (m.group(3) != null) {
@@ -417,7 +473,7 @@ TimeParseResult? parseTime(String text) {
     r'(?:\b(as|a)\s*)?(\d{1,2})(?:[:h](\d{2}))?',
     caseSensitive: false,
   ).firstMatch(low);
-  if (m != null) {
+  if (m != null && _isValidTimeMatch(low, m)) {
     var hh = int.parse(m.group(2)!);
     int? mm = m.group(3) != null ? int.parse(m.group(3)!) : null;
 
@@ -811,6 +867,11 @@ String stripTemporalResidualPT(String s) {
 
   t = t.replaceAll(
     RegExp(r'\b(?:meio[-\s]dia|meia[-\s]noite)\b', caseSensitive: false),
+    ' ',
+  );
+
+  t = t.replaceAll(
+    RegExp(r'\b(?:no\s+)?dia\s+\d{1,2}\b', caseSensitive: false),
     ' ',
   );
 

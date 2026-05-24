@@ -204,7 +204,7 @@ class _AnimatedTaskListState<T> extends State<AnimatedTaskList<T>>
     final items = _orderedItems;
 
     return ListView.separated(
-      clipBehavior: Clip.none,
+      clipBehavior: Clip.hardEdge,
       padding: widget.padding,
       itemCount: items.length,
       separatorBuilder: (context, index) =>

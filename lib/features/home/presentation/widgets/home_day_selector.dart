@@ -42,11 +42,16 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
   double _listWidth = 0;
   bool _pendingInitialScroll = true;
   bool _initialScrollScheduled = false;
+  _TodayOffscreenSide _todayOffscreenSide = _TodayOffscreenSide.none;
 
   static const double _chipSpacing = 3;
 
-  /// Largura visível ≈ 7,15 pílulas — mostra um pedaço da anterior/próxima na borda.
-  static const double _visibleChips = 7.15;
+  static const double _itemStride = _DayChip.width + _chipSpacing;
+
+  /// Recuo lateral do botão «Hoje».
+  static const double _returnToTodaySideInset = 14;
+
+  static const double _visibilityEpsilon = 2;
 
   static final _weekdayFormat = DateFormat('EEE', 'pt_BR');
   static final _monthFormat = DateFormat('MMM', 'pt_BR');
@@ -67,7 +72,7 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
     final anchorWeek = _weekStart(DateTime.now());
     _firstWeekStart = anchorWeek.subtract(Duration(days: widget.weeksBefore * 7));
     _totalDays = (widget.weeksBefore + widget.weeksAfter + 1) * 7;
-    _scrollController = ScrollController();
+    _scrollController = ScrollController()..addListener(_syncTodayVisibility);
   }
 
   @override
@@ -121,10 +126,13 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
   }
 
   /// Retorna `true` quando o scroll foi aplicado (lista pronta).
-  bool _alignToSelectedDay({required bool animate}) {
+  bool _alignToSelectedDay({required bool animate}) =>
+      _alignToDate(widget.selectedDate, animate: animate);
+
+  bool _alignToDate(DateTime date, {required bool animate}) {
     if (!_scrollController.hasClients) return false;
 
-    final index = _dayIndexFor(widget.selectedDate).clamp(0, _totalDays - 1);
+    final index = _dayIndexFor(date).clamp(0, _totalDays - 1);
     final position = _scrollController.position;
     final viewport = _listWidth > 0 ? _listWidth : position.viewportDimension;
     if (viewport <= 0) return false;
@@ -132,8 +140,8 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
     // Lista ainda não mediu o conteúdo — maxScrollExtent 0 com índice > 0.
     if (position.maxScrollExtent <= 0 && index > 0) return false;
 
-    final chipWidth = viewport / _visibleChips;
-    final itemStride = chipWidth + _chipSpacing;
+    final chipWidth = _DayChip.width;
+    final itemStride = _itemStride;
     final target = (index * itemStride) - (viewport - chipWidth) / 2;
     final clamped = target.clamp(0.0, position.maxScrollExtent);
 
@@ -146,17 +154,49 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
     } else {
       _scrollController.jumpTo(clamped);
     }
+    _syncTodayVisibility();
     return true;
+  }
+
+  void _syncTodayVisibility() {
+    if (!_scrollController.hasClients || _listWidth <= 0) return;
+
+    final today = TaskStore.dateOnly(DateTime.now());
+    final todayIndex = _dayIndexFor(today).clamp(0, _totalDays - 1);
+    final chipWidth = _DayChip.width;
+    final itemStride = _itemStride;
+    final offset = _scrollController.offset;
+    final viewportEnd = offset + _listWidth;
+
+    final todayStart = todayIndex * itemStride;
+    final todayEnd = todayStart + chipWidth;
+
+    final next = todayEnd <= offset + _visibilityEpsilon
+        ? _TodayOffscreenSide.left
+        : todayStart >= viewportEnd - _visibilityEpsilon
+            ? _TodayOffscreenSide.right
+            : _TodayOffscreenSide.none;
+
+    if (next == _todayOffscreenSide) return;
+    setState(() => _todayOffscreenSide = next);
+  }
+
+  void _returnToToday() {
+    final today = TaskStore.dateOnly(DateTime.now());
+    if (!_sameDay(widget.selectedDate, today)) {
+      widget.onDateSelected(today);
+      return;
+    }
+    _alignToDate(today, animate: true);
   }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<TaskStore>();
     final selected = TaskStore.dateOnly(widget.selectedDate);
+    final today = TaskStore.dateOnly(DateTime.now());
 
-    return ClipRect(
-      clipBehavior: Clip.none,
-      child: LayoutBuilder(
+    return LayoutBuilder(
         builder: (context, constraints) {
           _listWidth = constraints.maxWidth;
 
@@ -165,8 +205,12 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
             _scheduleAlignToSelected(animate: false);
           }
 
-          final chipWidth = constraints.maxWidth / _visibleChips;
-          final itemStride = chipWidth + _chipSpacing;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _syncTodayVisibility();
+          });
+
+          final chipWidth = _DayChip.width;
+          final itemStride = _itemStride;
 
           final fadeWidth = widget.edgeFadeWidth;
 
@@ -175,62 +219,162 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                ListView.builder(
-                  controller: _scrollController,
-                  scrollDirection: Axis.horizontal,
-                  clipBehavior: Clip.none,
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: _totalDays,
-                  itemExtent: itemStride,
-                  itemBuilder: (context, index) {
-                    final day = _dateAtIndex(index);
-                    return Padding(
-                      padding: const EdgeInsets.only(right: _chipSpacing),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: _DayChip.shadowBleed,
-                          ),
-                          child: SizedBox(
-                            width: chipWidth,
-                            child: _DayChip(
-                              date: day,
-                              weekdayLabel: _chipCaptionLabel(day, selected),
-                              isSelected: _sameDay(day, selected),
-                              stats: store.taskStatsForDate(day),
-                              onTap: () => widget.onDateSelected(day),
+                ClipRect(
+                  child: ShaderMask(
+                    blendMode: BlendMode.dstIn,
+                    shaderCallback: (bounds) =>
+                        _horizontalEdgeMaskShader(bounds, fadeWidth),
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      scrollDirection: Axis.horizontal,
+                      clipBehavior: Clip.hardEdge,
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: _totalDays,
+                      itemExtent: itemStride,
+                      itemBuilder: (context, index) {
+                        final day = _dateAtIndex(index);
+                        return Padding(
+                          padding: const EdgeInsets.only(right: _chipSpacing),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: _DayChip.shadowBleed,
+                              ),
+                              child: SizedBox(
+                                width: chipWidth,
+                                child: _DayChip(
+                                  date: day,
+                                  weekdayLabel: _chipCaptionLabel(day, selected),
+                                  isSelected: _sameDay(day, selected),
+                                  isToday: _sameDay(day, today),
+                                  stats: store.taskStatsForDate(day),
+                                  onTap: () => widget.onDateSelected(day),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                    );
-                  },
+                        );
+                      },
+                    ),
+                  ),
                 ),
-                if (fadeWidth > 0) ...[
+                if (_todayOffscreenSide == _TodayOffscreenSide.left)
                   Positioned(
-                    left: 0,
+                    left: _returnToTodaySideInset,
                     top: 0,
                     bottom: 0,
-                    width: fadeWidth,
-                    child: _EdgeFade(
-                      alignment: Alignment.centerLeft,
+                    child: Center(
+                      child: _ReturnToTodayButton(
+                        todayOnLeft: true,
+                        onPressed: _returnToToday,
+                      ),
                     ),
                   ),
+                if (_todayOffscreenSide == _TodayOffscreenSide.right)
                   Positioned(
-                    right: 0,
+                    right: _returnToTodaySideInset,
                     top: 0,
                     bottom: 0,
-                    width: fadeWidth,
-                    child: _EdgeFade(
-                      alignment: Alignment.centerRight,
+                    child: Center(
+                      child: _ReturnToTodayButton(
+                        todayOnLeft: false,
+                        onPressed: _returnToToday,
+                      ),
                     ),
                   ),
-                ],
               ],
             ),
           );
         },
+      );
+  }
+
+  /// Máscara horizontal: bordas transparentes, centro opaco — elimina vazamento.
+  static Shader _horizontalEdgeMaskShader(Rect bounds, double fadeWidth) {
+    if (bounds.width <= 0 || fadeWidth <= 0) {
+      return const LinearGradient(
+        colors: [Color(0xFFFFFFFF), Color(0xFFFFFFFF)],
+      ).createShader(bounds);
+    }
+
+    final stop = (fadeWidth / bounds.width).clamp(0.05, 0.45);
+    return LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: const [
+        Color(0x00000000),
+        Color(0xFFFFFFFF),
+        Color(0xFFFFFFFF),
+        Color(0x00000000),
+      ],
+      stops: [0, stop, 1 - stop, 1],
+    ).createShader(bounds);
+  }
+}
+
+enum _TodayOffscreenSide { none, left, right }
+
+/// Atalho para recentralizar o scroll no dia de hoje quando ele sai da vista.
+class _ReturnToTodayButton extends StatelessWidget {
+  const _ReturnToTodayButton({
+    required this.todayOnLeft,
+    required this.onPressed,
+  });
+
+  /// Hoje ficou à esquerda da área visível — seta aponta para a esquerda.
+  final bool todayOnLeft;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: TaskerColors.cardBackground,
+      elevation: 3,
+      shadowColor: const Color(0x22000000),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (todayOnLeft) ...[
+                Icon(
+                  Icons.chevron_left_rounded,
+                  size: 16,
+                  color: TaskerColors.primary,
+                ),
+                const SizedBox(width: 1),
+              ],
+              Icon(
+                Icons.today_rounded,
+                size: 14,
+                color: TaskerColors.primary,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Hoje',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: TaskerColors.primary,
+                  letterSpacing: -0.1,
+                ),
+              ),
+              if (!todayOnLeft) ...[
+                const SizedBox(width: 1),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 16,
+                  color: TaskerColors.primary,
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -241,6 +385,7 @@ class _DayChip extends StatelessWidget {
     required this.date,
     required this.weekdayLabel,
     required this.isSelected,
+    required this.isToday,
     required this.stats,
     required this.onTap,
   });
@@ -248,10 +393,16 @@ class _DayChip extends StatelessWidget {
   final DateTime date;
   final String weekdayLabel;
   final bool isSelected;
+  final bool isToday;
   final ({int total, int completed}) stats;
   final VoidCallback onTap;
 
   static const double _verticalPadding = 8;
+  static const double _horizontalPadding = 4;
+  static const double _todayOutlineWidth = 1.5;
+
+  /// Largura fixa — envolve número, rótulo e indicador (não estica com a tela).
+  static const double width = 52;
   static const double _dayFontSize = 22;
   static const double _weekdayFontSize = 11;
   static const double _gapDayToWeekday = 3;
@@ -274,6 +425,9 @@ class _DayChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final showTodayOutline = isToday && !isSelected;
+    final outlineInset = showTodayOutline ? _todayOutlineWidth : 0.0;
+
     return Material(
       color: Colors.transparent,
       clipBehavior: Clip.none,
@@ -281,17 +435,24 @@ class _DayChip extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(22),
         child: AnimatedContainer(
+          width: double.infinity,
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(
-            vertical: _verticalPadding,
-            horizontal: 4,
+          padding: EdgeInsets.symmetric(
+            vertical: _verticalPadding - outlineInset,
+            horizontal: _horizontalPadding - outlineInset,
           ),
           decoration: BoxDecoration(
             color: isSelected
                 ? TaskerColors.cardBackground
                 : const Color(0x66FFFFFF),
             borderRadius: BorderRadius.circular(22),
+            border: showTodayOutline
+                ? Border.all(
+                    color: TaskerColors.primary.withValues(alpha: 0.55),
+                    width: _todayOutlineWidth,
+                  )
+                : null,
             boxShadow: isSelected
                 ? const [
                     BoxShadow(
@@ -314,7 +475,9 @@ class _DayChip extends StatelessWidget {
                   height: 1,
                   color: isSelected
                       ? TaskerColors.primaryText
-                      : TaskerColors.secondaryText,
+                      : showTodayOutline
+                          ? TaskerColors.primary
+                          : TaskerColors.secondaryText,
                 ),
               ),
               const SizedBox(height: _gapDayToWeekday),
@@ -327,7 +490,9 @@ class _DayChip extends StatelessWidget {
                   letterSpacing: 0.3,
                   color: isSelected
                       ? TaskerColors.secondaryText
-                      : TaskerColors.mutedText,
+                      : showTodayOutline
+                          ? TaskerColors.primary.withValues(alpha: 0.75)
+                          : TaskerColors.mutedText,
                 ),
               ),
               const SizedBox(height: _gapBeforeIndicator),
@@ -537,31 +702,5 @@ class _DayProgressRingPainter extends CustomPainter {
         oldDelegate.trackColor != trackColor ||
         oldDelegate.progressColor != progressColor ||
         oldDelegate.strokeWidth != strokeWidth;
-  }
-}
-
-/// Fade na borda do seletor, alinhado ao fundo da home.
-class _EdgeFade extends StatelessWidget {
-  const _EdgeFade({required this.alignment});
-
-  final Alignment alignment;
-
-  @override
-  Widget build(BuildContext context) {
-    final isLeft = alignment == Alignment.centerLeft;
-    return IgnorePointer(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: isLeft ? Alignment.centerLeft : Alignment.centerRight,
-            end: isLeft ? Alignment.centerRight : Alignment.centerLeft,
-            colors: [
-              TaskerColors.appBackground,
-              TaskerColors.appBackground.withValues(alpha: 0),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }

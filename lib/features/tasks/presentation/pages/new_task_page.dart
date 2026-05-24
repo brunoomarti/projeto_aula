@@ -9,10 +9,12 @@ import 'package:uuid/uuid.dart';
 import '../../../../app/theme/tasker_card_style.dart';
 import '../../../../app/theme/tasker_colors.dart';
 import '../../../../core/layout/tasker_breakpoints.dart';
+import '../../../../core/nlp/extract_errand_list_pt_br.dart';
 import '../../domain/task.dart';
 import '../../domain/task_icon_catalog.dart';
 import '../state/task_store.dart';
 import '../widgets/complete_input.dart';
+import '../widgets/task_errand_list_fields.dart';
 import '../widgets/task_icon_picker_section.dart';
 import '../widgets/task_location_picker_map.dart';
 import '../widgets/task_page_header.dart';
@@ -20,12 +22,17 @@ import '../widgets/task_section_card.dart';
 
 enum _SubmitAction { stay, back }
 
+enum _TaskBodyMode { description, errandList }
+
 /// Formulário de nova tarefa — equivalente a [tasker-main/src/view/tasks/novaTarefa.jsx].
 class NewTaskPage extends StatefulWidget {
-  const NewTaskPage({super.key, this.taskToEdit});
+  const NewTaskPage({super.key, this.taskToEdit, this.initialDate});
 
   /// Quando informada, o formulário abre em modo edição.
   final Task? taskToEdit;
+
+  /// Data inicial ao criar (ex.: dia selecionado na home).
+  final DateTime? initialDate;
 
   @override
   State<NewTaskPage> createState() => _NewTaskPageState();
@@ -36,8 +43,10 @@ class _NewTaskPageState extends State<NewTaskPage> {
 
   final _titleController = TextEditingController();
   final _descricaoController = TextEditingController();
+  final List<TextEditingController> _errandItemControllers = [];
 
   late String _dataYmd;
+  late _TaskBodyMode _bodyMode;
   TimeOfDay? _hora;
   bool _done = false;
   bool _includeLocation = false;
@@ -53,20 +62,32 @@ class _NewTaskPageState extends State<NewTaskPage> {
 
   TaskLocation? get _initialLocation => widget.taskToEdit?.location;
 
+  DateTime get _defaultDate =>
+      TaskStore.dateOnly(widget.initialDate ?? DateTime.now());
+
   @override
   void initState() {
     super.initState();
     final existing = widget.taskToEdit;
     if (existing != null) {
       _titleController.text = existing.title;
-      _descricaoController.text = existing.descricao;
-      _dataYmd = existing.data.isNotEmpty ? existing.data : _todayYmd();
+      _dataYmd = existing.data.isNotEmpty ? existing.data : _defaultDateYmd();
       _hora = _parseHora(existing.hora);
       _done = existing.done;
       _includeLocation = existing.location != null;
       _iconKey = existing.iconKey ?? TaskIconCatalog.defaultIconKey;
       _iconBackgroundArgb = existing.iconBackgroundArgb ??
           TaskIconCatalog.defaultColor.backgroundArgb;
+
+      final errandItems = parseErrandListFromDescription(existing.descricao);
+      if (errandItems.isNotEmpty) {
+        _bodyMode = _TaskBodyMode.errandList;
+        _setErrandControllers(errandItems);
+      } else {
+        _bodyMode = _TaskBodyMode.description;
+        _descricaoController.text = existing.descricao;
+        _setErrandControllers(const ['']);
+      }
 
       if (existing.location != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -76,14 +97,84 @@ class _NewTaskPageState extends State<NewTaskPage> {
         });
       }
     } else {
-      _dataYmd = _todayYmd();
+      _dataYmd = _defaultDateYmd();
+      _bodyMode = _TaskBodyMode.description;
+      _setErrandControllers(const ['']);
     }
+  }
+
+  void _setErrandControllers(List<String> items) {
+    for (final c in _errandItemControllers) {
+      c.dispose();
+    }
+    _errandItemControllers
+      ..clear()
+      ..addAll(
+        (items.isEmpty ? const [''] : items)
+            .map((s) => TextEditingController(text: s))
+            .toList(),
+      );
+  }
+
+  List<String> _errandItemTexts() =>
+      _errandItemControllers.map((c) => c.text).toList();
+
+  String _descricaoForSave() {
+    if (_bodyMode == _TaskBodyMode.errandList) {
+      final items = _errandItemTexts()
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      return items.isEmpty ? '' : formatErrandDescription(items);
+    }
+    return _descricaoController.text;
+  }
+
+  void _addErrandItem() {
+    setState(() {
+      _errandItemControllers.add(TextEditingController());
+    });
+  }
+
+  void _removeErrandItem(int index) {
+    if (_errandItemControllers.length <= 1) return;
+    setState(() {
+      _errandItemControllers.removeAt(index).dispose();
+    });
+  }
+
+  void _setBodyMode(_TaskBodyMode mode) {
+    if (mode == _bodyMode) return;
+
+    if (mode == _TaskBodyMode.errandList) {
+      final parsed = parseErrandListFromDescription(_descricaoController.text);
+      if (parsed.isNotEmpty) {
+        _setErrandControllers(parsed);
+      } else if (_descricaoController.text.trim().isNotEmpty) {
+        _setErrandControllers([_descricaoController.text.trim()]);
+      } else {
+        _setErrandControllers(const ['']);
+      }
+    } else {
+      final items = _errandItemTexts()
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (items.isNotEmpty) {
+        _descricaoController.text = formatErrandDescription(items);
+      }
+    }
+
+    setState(() => _bodyMode = mode);
   }
 
   @override
   void dispose() {
     _titleController.dispose();
     _descricaoController.dispose();
+    for (final c in _errandItemControllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -96,10 +187,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
     return TimeOfDay(hour: h, minute: m);
   }
 
-  String _todayYmd() {
-    final d = DateTime.now();
-    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-  }
+  String _defaultDateYmd() => TaskStore.formatDateYmd(_defaultDate);
 
   DateTime? _parseDataYmd(String ymd) {
     final parts = ymd.split('-');
@@ -165,7 +253,9 @@ class _NewTaskPageState extends State<NewTaskPage> {
     setState(() {
       _titleController.clear();
       _descricaoController.clear();
-      _dataYmd = _todayYmd();
+      _bodyMode = _TaskBodyMode.description;
+      _setErrandControllers(const ['']);
+      _dataYmd = _defaultDateYmd();
       _hora = null;
       _done = false;
       _includeLocation = false;
@@ -181,7 +271,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
     return Task(
       id: existing?.id ?? _uuid.v4(),
       title: _titleController.text.trim(),
-      descricao: _descricaoController.text,
+      descricao: _descricaoForSave(),
       data: _dataYmd,
       hora: _horaToString(_hora),
       done: _done,
@@ -383,7 +473,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildWhatSection(),
+        _buildWhatSection(allDisabled),
         const SizedBox(height: TaskerCardStyle.sectionSpacing),
         _buildWhenSection(width),
         const SizedBox(height: TaskerCardStyle.sectionSpacing),
@@ -396,11 +486,12 @@ class _NewTaskPageState extends State<NewTaskPage> {
     );
   }
 
-  Widget _buildWhatSection() {
+  Widget _buildWhatSection(bool allDisabled) {
     return TaskSectionCard(
-      title: 'Nome e descrição',
+      title: 'Nome e detalhes',
       icon: Icons.edit_note_outlined,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           CompleteInput(
             label: 'Título',
@@ -413,17 +504,64 @@ class _NewTaskPageState extends State<NewTaskPage> {
               style: TaskerFieldDecoration.textStyle,
             ),
           ),
-          const SizedBox(height: 14),
-          CompleteInput(
-            label: 'Descrição (opcional)',
-            child: TextField(
-              controller: _descricaoController,
-              maxLines: 3,
-              decoration: TaskerFieldDecoration.decoration(
-                hintText: 'Detalhes, links, observações…',
-              ),
-              style: TaskerFieldDecoration.textStyle,
+          const SizedBox(height: 16),
+          Text(
+            'Tipo de detalhe',
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              color: TaskerColors.secondaryText.withValues(alpha: 0.95),
+              fontSize: 14,
             ),
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<_TaskBodyMode>(
+            segments: const [
+              ButtonSegment(
+                value: _TaskBodyMode.description,
+                label: Text('Descrição'),
+                icon: Icon(Icons.notes_outlined, size: 18),
+              ),
+              ButtonSegment(
+                value: _TaskBodyMode.errandList,
+                label: Text('Lista'),
+                icon: Icon(Icons.checklist_outlined, size: 18),
+              ),
+            ],
+            selected: {_bodyMode},
+            onSelectionChanged: allDisabled
+                ? null
+                : (selection) => _setBodyMode(selection.first),
+            style: ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          const SizedBox(height: 14),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: _bodyMode == _TaskBodyMode.description
+                ? CompleteInput(
+                    key: const ValueKey('description'),
+                    label: 'Descrição (opcional)',
+                    child: TextField(
+                      controller: _descricaoController,
+                      maxLines: 3,
+                      decoration: TaskerFieldDecoration.decoration(
+                        hintText: 'Detalhes, links, observações…',
+                      ),
+                      style: TaskerFieldDecoration.textStyle,
+                    ),
+                  )
+                : CompleteInput(
+                    key: const ValueKey('errand-list'),
+                    label: errandListSummaryLabel,
+                    child: TaskErrandListFields(
+                      controllers: _errandItemControllers,
+                      enabled: !allDisabled,
+                      onAdd: _addErrandItem,
+                      onRemove: _removeErrandItem,
+                    ),
+                  ),
           ),
         ],
       ),

@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../app/theme/tasker_colors.dart';
+import '../../../../core/nlp/extract_errand_list_pt_br.dart';
 import '../../../../core/nlp/extract_place_pt_br.dart';
 import '../../../../core/nlp/extract_when_pt_br.dart';
 import '../../../../core/nlp/infer_task_icon_pt_br.dart';
@@ -57,21 +59,26 @@ String _capFirst(String str) {
 class MagicTaskInput extends StatefulWidget {
   const MagicTaskInput({
     super.key,
+    required this.selectedDate,
     this.placeholder = 'Digite ou fale o que você quer fazer…',
     this.onCreated,
     this.autofocus = false,
+    this.onChromeActiveChanged,
   });
 
+  /// Dia selecionado na home — usado quando o NLP não extrai data.
+  final DateTime selectedDate;
   final String placeholder;
   final VoidCallback? onCreated;
   final bool autofocus;
+  final ValueChanged<bool>? onChromeActiveChanged;
 
   @override
-  State<MagicTaskInput> createState() => _MagicTaskInputState();
+  State<MagicTaskInput> createState() => MagicTaskInputState();
 }
 
-class _MagicTaskInputState extends State<MagicTaskInput>
-    with TickerProviderStateMixin {
+class MagicTaskInputState extends State<MagicTaskInput>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static final _uuid = Uuid();
 
   final _controller = TextEditingController();
@@ -101,9 +108,12 @@ class _MagicTaskInputState extends State<MagicTaskInput>
   /// Gravação contínua ao segurar o microfone — soltar cria a tarefa.
   bool _isHoldToTalk = false;
 
+  double _lastViewInsetBottom = 0;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _phraseQueue = _shuffleSuggestions(_kSuggestions);
     _borderController = AnimationController(
       vsync: this,
@@ -117,10 +127,15 @@ class _MagicTaskInputState extends State<MagicTaskInput>
     }
     _startPlaceholderCycle();
     _startCursorBlink();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _lastViewInsetBottom = MediaQuery.viewInsetsOf(context).bottom;
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(TaskSpeechService.stopListening());
     _typingTimer?.cancel();
     _cursorTimer?.cancel();
@@ -141,6 +156,36 @@ class _MagicTaskInputState extends State<MagicTaskInput>
       _borderController.stop();
     }
     setState(() {});
+    _notifyChromeActive();
+  }
+
+  void _notifyChromeActive() {
+    widget.onChromeActiveChanged?.call(_focusNode.hasFocus || _isListening);
+  }
+
+  /// Fecha teclado, foco e gravação de voz (ex.: botão voltar).
+  void dismissChrome() => _dismissInputChrome();
+
+  bool get isChromeActive => _focusNode.hasFocus || _isListening;
+
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    if (_lastViewInsetBottom > 0 && bottom == 0 && _focusNode.hasFocus) {
+      _focusNode.unfocus();
+    }
+    _lastViewInsetBottom = bottom;
+  }
+
+  void _dismissInputChrome() {
+    if (_isListening) {
+      unawaited(_cancelHoldVoice());
+      return;
+    }
+    if (_focusNode.hasFocus) {
+      _focusNode.unfocus();
+    }
   }
 
   bool get _placeholderPaused =>
@@ -252,7 +297,10 @@ class _MagicTaskInputState extends State<MagicTaskInput>
   Future<Task> _buildTaskFromText(String text) async {
     final normalized = dedupeRepeatedSpeech(text.trim());
     final placeExtract = extractPlacePTBR(normalized);
-    final parsed = extractWhenPTBR(normalized, DateTime.now());
+    final errandExtract =
+        extractErrandListPTBR(normalized, place: placeExtract);
+    final referenceDate = TaskStore.dateOnly(widget.selectedDate);
+    final parsed = extractWhenPTBR(normalized, referenceDate);
     final icon = inferTaskIconPTBR(normalized);
 
     var rawTitle = (parsed.title.isNotEmpty ? parsed.title : normalized).trim();
@@ -262,15 +310,29 @@ class _MagicTaskInputState extends State<MagicTaskInput>
         rawTitle = stripPlaceFromTitle(normalized, placeExtract);
       }
     }
+    if (errandExtract != null) {
+      rawTitle = stripErrandFromTitle(rawTitle, errandExtract);
+      if (rawTitle.isEmpty) {
+        rawTitle = stripErrandFromTitle(normalized, errandExtract);
+      }
+    }
 
-    final title = _capFirst(
-      rawTitle.isNotEmpty ? rawTitle : (parsed.title.isNotEmpty ? parsed.title : normalized),
-    );
-    final data = parsed.dateYmd ?? TaskStore.formatDateYmd(DateTime.now());
+    String title;
+    if (placeExtract != null && errandExtract != null) {
+      title = errandTitleForPlace(placeExtract.searchQuery, errandExtract.verb);
+    } else {
+      title = _capFirst(
+        rawTitle.isNotEmpty
+            ? rawTitle
+            : (parsed.title.isNotEmpty ? parsed.title : normalized),
+      );
+    }
+    final data =
+        parsed.dateYmd ?? TaskStore.formatDateYmd(referenceDate);
     final hora = parsed.timeHHMM ?? '';
 
     TaskLocation? location;
-    if (placeExtract != null) {
+    if (placeExtract != null && !placeExtract.skipGeocoding) {
       var near = await LocationService.getQuickLocationForMap();
       near ??= await LocationService.refineLocationForMap();
       final resolved = await resolvePlaceLocation(placeExtract, near: near);
@@ -282,6 +344,7 @@ class _MagicTaskInputState extends State<MagicTaskInput>
     return Task(
       id: _uuid.v4(),
       title: title,
+      descricao: errandExtract?.description ?? '',
       data: data,
       hora: hora,
       location: location,
@@ -297,15 +360,18 @@ class _MagicTaskInputState extends State<MagicTaskInput>
 
     setState(() => _isSubmitting = true);
     try {
-      if (extractPlacePTBR(text.trim()) != null) {
+      final placeHint = extractPlacePTBR(text.trim());
+      if (placeHint != null && !placeHint.skipGeocoding) {
         _setHint('Localizando endereço…', duration: const Duration(seconds: 6));
       }
       final task = await _buildTaskFromText(text.trim());
       if (!mounted) return;
       await context.read<TaskStore>().addTask(task);
 
-      final isToday = task.data == TaskStore.formatDateYmd(DateTime.now());
-      if (isToday) widget.onCreated?.call();
+      final selectedYmd = TaskStore.formatDateYmd(
+        TaskStore.dateOnly(widget.selectedDate),
+      );
+      if (task.data == selectedYmd) widget.onCreated?.call();
 
       _liveTranscript = '';
       _controller.clear();
@@ -331,6 +397,7 @@ class _MagicTaskInputState extends State<MagicTaskInput>
       _isHoldToTalk = holdToTalk;
       _liveTranscript = '';
     });
+    _notifyChromeActive();
     _controller.clear();
     _setHint(
       holdToTalk
@@ -360,6 +427,7 @@ class _MagicTaskInputState extends State<MagicTaskInput>
           _isHoldToTalk = false;
           _liveTranscript = '';
         });
+        _notifyChromeActive();
         _borderController.duration = const Duration(seconds: 4);
         final hint = message.contains('Permiss') || message.contains('perm')
             ? 'Permissão negada ao microfone'
@@ -375,6 +443,7 @@ class _MagicTaskInputState extends State<MagicTaskInput>
         _isHoldToTalk = false;
         _liveTranscript = '';
       });
+      _notifyChromeActive();
     }
   }
 
@@ -385,6 +454,7 @@ class _MagicTaskInputState extends State<MagicTaskInput>
       _isHoldToTalk = false;
       _liveTranscript = '';
     });
+    _notifyChromeActive();
     _controller.clear();
     _borderController.duration = const Duration(seconds: 4);
     await TaskSpeechService.stopListening();
@@ -400,6 +470,7 @@ class _MagicTaskInputState extends State<MagicTaskInput>
       _isListening = false;
       _isHoldToTalk = false;
     });
+    _notifyChromeActive();
     _borderController.duration = const Duration(seconds: 4);
 
     if (wasListening) {
@@ -442,122 +513,157 @@ class _MagicTaskInputState extends State<MagicTaskInput>
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (_hint.isNotEmpty) ...[
-          Text(
-            _hint,
-            style: TextStyle(
-              fontSize: 13,
-              color: TaskerColors.secondaryText.withValues(alpha: 0.9),
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-        _MagicInputShell(
-          focused: _focusNode.hasFocus,
-          listening: _isListening,
-          borderAnimation: _borderController,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              _kInputInset + _kIconLeftExtra,
-              _kInputInset,
-              _kInputInset,
-              _kInputInset,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.auto_awesome,
-                  size: 20,
-                  color: TaskerColors.primary,
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): _dismissInputChrome,
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+            if (_hint.isNotEmpty) ...[
+              _MagicInputHintBubble(message: _hint),
+              const SizedBox(height: 8),
+            ],
+            _MagicInputShell(
+              focused: _focusNode.hasFocus,
+              listening: _isListening,
+              borderAnimation: _borderController,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  _kInputInset + _kIconLeftExtra,
+                  _kInputInset,
+                  _kInputInset,
+                  _kInputInset,
                 ),
-                const SizedBox(width: _kIconTextGap),
-                Expanded(
-                  child: Stack(
-                    alignment: Alignment.centerLeft,
-                    children: [
-                      if (_showAnimatedPlaceholder)
-                        IgnorePointer(
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  _animatedPhrase,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: _hintTextStyle,
-                                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.auto_awesome,
+                      size: 20,
+                      color: TaskerColors.primary,
+                    ),
+                    const SizedBox(width: _kIconTextGap),
+                    Expanded(
+                      child: Stack(
+                        alignment: Alignment.centerLeft,
+                        children: [
+                          if (_showAnimatedPlaceholder)
+                            IgnorePointer(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      _animatedPhrase,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: _hintTextStyle,
+                                    ),
+                                  ),
+                                  Opacity(
+                                    opacity: _cursorOn ? 1 : 0,
+                                    child: Text(
+                                      _kCursorChar,
+                                      style: _hintTextStyle,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              Opacity(
-                                opacity: _cursorOn ? 1 : 0,
-                                child: Text(
-                                  _kCursorChar,
-                                  style: _hintTextStyle,
-                                ),
-                              ),
-                            ],
+                            ),
+                          TextField(
+                            controller: _controller,
+                            focusNode: _focusNode,
+                            enabled: !_isSubmitting,
+                            onChanged: (_) => setState(() {
+                              if (_controller.text.isNotEmpty) {
+                                _animatedPhrase = '';
+                              } else {
+                                _resumePlaceholderIfIdle();
+                              }
+                            }),
+                            onSubmitted: (value) {
+                              if (value.trim().isNotEmpty &&
+                                  !_isListening &&
+                                  !_isSubmitting) {
+                                _createTaskFromText(value);
+                              }
+                            },
+                            decoration: InputDecoration(
+                              hintText: _fieldHintText,
+                              hintStyle: _hintTextStyle,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              contentPadding: EdgeInsets.zero,
+                              isCollapsed: true,
+                            ),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.2,
+                              color: TaskerColors.primaryText,
+                            ),
+                            textInputAction: TextInputAction.done,
                           ),
-                        ),
-                      TextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        enabled: !_isSubmitting,
-                        onChanged: (_) => setState(() {
-                          if (_controller.text.isNotEmpty) {
-                            _animatedPhrase = '';
-                          } else {
-                            _resumePlaceholderIfIdle();
-                          }
-                        }),
-                        onSubmitted: (value) {
-                          if (value.trim().isNotEmpty &&
-                              !_isListening &&
-                              !_isSubmitting) {
-                            _createTaskFromText(value);
-                          }
-                        },
-                        decoration: InputDecoration(
-                          hintText: _fieldHintText,
-                          hintStyle: _hintTextStyle,
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          contentPadding: EdgeInsets.zero,
-                          isCollapsed: true,
-                        ),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          height: 1.2,
-                          color: TaskerColors.primaryText,
-                        ),
-                        textInputAction: TextInputAction.done,
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: _kIconTextGap),
+                    _MagicActionButton(
+                      showSend: _showSend,
+                      isListening: _isListening,
+                      isHoldToTalk: _isHoldToTalk,
+                      isSubmitting: _isSubmitting,
+                      onMicTap: () => _startVoice(),
+                      onMicHoldStart: () => _startVoice(holdToTalk: true),
+                      onMicHoldEnd: _stopVoiceAndSubmit,
+                      onMicHoldCancel: _cancelHoldVoice,
+                      onSend: _isListening
+                          ? _stopVoiceAndSubmit
+                          : () => _createTaskFromText(_controller.text),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: _kIconTextGap),
-                _MagicActionButton(
-                  showSend: _showSend,
-                  isListening: _isListening,
-                  isHoldToTalk: _isHoldToTalk,
-                  isSubmitting: _isSubmitting,
-                  onMicTap: () => _startVoice(),
-                  onMicHoldStart: () => _startVoice(holdToTalk: true),
-                  onMicHoldEnd: _stopVoiceAndSubmit,
-                  onMicHoldCancel: _cancelHoldVoice,
-                  onSend: _isListening
-                      ? _stopVoiceAndSubmit
-                      : () => _createTaskFromText(_controller.text),
-                ),
-              ],
+              ),
             ),
+          ],
+      ),
+    );
+  }
+}
+
+class _MagicInputHintBubble extends StatelessWidget {
+  const _MagicInputHintBubble({required this.message});
+
+  final String message;
+
+  static const _radius = 12.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(_radius),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 14,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Text(
+          message,
+          style: const TextStyle(
+            fontSize: 13,
+            height: 1.35,
+            color: TaskerColors.secondaryText,
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -576,84 +682,106 @@ class _MagicInputShell extends StatelessWidget {
   final Animation<double> borderAnimation;
 
   static const _radius = 14.0;
+  static const _borderWidth = 2.0;
+  static const _idleBorderColor = Color(0xFFD6DAE8);
+
+  static const _gradientColors = [
+    Color(0xFF7864FF),
+    Color(0xFFFF78C8),
+    Color(0xFFFFC878),
+    Color(0xFF78DCFF),
+    Color(0xFF7864FF),
+  ];
 
   @override
   Widget build(BuildContext context) {
+    final active = focused || listening;
+    final border = listening ? 2.25 : _borderWidth;
+    final innerRadius = _radius - border;
+
     return AnimatedBuilder(
       animation: borderAnimation,
       builder: (context, _) {
-        return CustomPaint(
-          painter: _MagicGradientBorderPainter(
-            progress: borderAnimation.value,
-            borderRadius: _radius,
-            active: focused || listening,
-            listening: listening,
-          ),
-          child: Container(
-            margin: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(_radius - 2),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x0A000000),
-                  blurRadius: 14,
-                  offset: Offset(0, 4),
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            if (active)
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _MagicInputGlowPainter(
+                    progress: borderAnimation.value,
+                    borderRadius: _radius,
+                  ),
                 ),
-              ],
+              ),
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(_radius),
+                gradient: active
+                    ? SweepGradient(
+                        colors: _gradientColors,
+                        transform: GradientRotation(
+                          borderAnimation.value * math.pi * 2,
+                        ),
+                      )
+                    : null,
+                color: active ? null : _idleBorderColor,
+              ),
+              padding: EdgeInsets.all(border),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(innerRadius),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x0A000000),
+                      blurRadius: 14,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: child,
+              ),
             ),
-            child: child,
-          ),
+          ],
         );
       },
     );
   }
 }
 
-class _MagicGradientBorderPainter extends CustomPainter {
-  _MagicGradientBorderPainter({
+/// Halo colorido que acompanha a rotação da borda ativa.
+class _MagicInputGlowPainter extends CustomPainter {
+  const _MagicInputGlowPainter({
     required this.progress,
     required this.borderRadius,
-    required this.active,
-    required this.listening,
   });
 
   final double progress;
   final double borderRadius;
-  final bool active;
-  final bool listening;
 
-  static const _gradientColors = [
-    Color.fromRGBO(120, 100, 255, 0.55),
-    Color.fromRGBO(255, 120, 200, 0.55),
-    Color.fromRGBO(255, 200, 120, 0.55),
-    Color.fromRGBO(120, 220, 255, 0.55),
-    Color.fromRGBO(120, 100, 255, 0.55),
-  ];
+  static const _gradientColors = _MagicInputShell._gradientColors;
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     final rrect = RRect.fromRectAndRadius(rect, Radius.circular(borderRadius));
-    final shift = progress * 2;
+    final shader = SweepGradient(
+      colors: _gradientColors,
+      transform: GradientRotation(progress * math.pi * 2),
+    ).createShader(rect);
 
-    final paint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment(-1 + shift, 0),
-        end: Alignment(1 + shift, 0),
-        colors: _gradientColors,
-      ).createShader(rect)
+    final glowPaint = Paint()
+      ..shader = shader
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    canvas.drawRRect(rrect, paint);
+      ..strokeWidth = 4
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    canvas.drawRRect(rrect, glowPaint);
   }
 
   @override
-  bool shouldRepaint(covariant _MagicGradientBorderPainter oldDelegate) {
-    return oldDelegate.progress != progress ||
-        oldDelegate.active != active ||
-        oldDelegate.listening != listening;
+  bool shouldRepaint(covariant _MagicInputGlowPainter oldDelegate) {
+    return oldDelegate.progress != progress;
   }
 }
 
