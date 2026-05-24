@@ -236,6 +236,19 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
                         ),
                       ),
                     Positioned(
+                      top: 8,
+                      right: 8,
+                      child: IgnorePointer(
+                        ignoring: !_mapReady,
+                        child: _MapControlButton(
+                          icon: Icons.my_location,
+                          tooltip: 'Minha localização',
+                          loading: _gpsLoading,
+                          onPressed: _loadDeviceLocation,
+                        ),
+                      ),
+                    ),
+                    Positioned(
                       right: 8,
                       bottom: 8,
                       child: IgnorePointer(
@@ -243,13 +256,13 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            _MapZoomButton(
+                            _MapControlButton(
                               icon: Icons.add,
                               tooltip: 'Aumentar zoom',
                               onPressed: () => _zoomBy(1),
                             ),
                             const SizedBox(height: 4),
-                            _MapZoomButton(
+                            _MapControlButton(
                               icon: Icons.remove,
                               tooltip: 'Diminuir zoom',
                               onPressed: () => _zoomBy(-1),
@@ -258,16 +271,6 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
                         ),
                       ),
                     ),
-                    if (_gpsLoading)
-                      const Positioned(
-                        top: 8,
-                        right: 8,
-                        child: SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
                     IgnorePointer(
                       child: Center(
                         child: Transform.translate(
@@ -490,16 +493,18 @@ class _AddressSearchFieldState extends State<_AddressSearchField> {
   }
 }
 
-class _MapZoomButton extends StatelessWidget {
-  const _MapZoomButton({
+class _MapControlButton extends StatelessWidget {
+  const _MapControlButton({
     required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.loading = false,
   });
 
   final IconData icon;
   final String tooltip;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -508,16 +513,25 @@ class _MapZoomButton extends StatelessWidget {
       elevation: 2,
       shadowColor: TaskerColors.cardShadow,
       shape: const CircleBorder(),
-      child: IconButton(
-        onPressed: onPressed,
-        tooltip: tooltip,
-        icon: Icon(icon, size: 20, color: TaskerColors.primary),
-        padding: const EdgeInsets.all(6),
-        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-        style: IconButton.styleFrom(
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-      ),
+      child: loading
+          ? const Padding(
+              padding: EdgeInsets.all(8),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          : IconButton(
+              onPressed: onPressed,
+              tooltip: tooltip,
+              icon: Icon(icon, size: 20, color: TaskerColors.primary),
+              padding: const EdgeInsets.all(6),
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              style: IconButton.styleFrom(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
     );
   }
 }
