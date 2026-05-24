@@ -39,6 +39,10 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
   late final int _totalDays;
   late final ScrollController _scrollController;
 
+  double _listWidth = 0;
+  bool _pendingInitialScroll = true;
+  bool _initialScrollScheduled = false;
+
   static const double _chipSpacing = 3;
 
   /// Largura visível ≈ 7,15 pílulas — mostra um pedaço da anterior/próxima na borda.
@@ -64,9 +68,6 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
     _firstWeekStart = anchorWeek.subtract(Duration(days: widget.weeksBefore * 7));
     _totalDays = (widget.weeksBefore + widget.weeksAfter + 1) * 7;
     _scrollController = ScrollController();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToSelectedDay(animate: false);
-    });
   }
 
   @override
@@ -74,8 +75,18 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
     super.didUpdateWidget(oldWidget);
     if (_sameDay(oldWidget.selectedDate, widget.selectedDate)) return;
 
+    _scheduleAlignToSelected(animate: true);
+  }
+
+  void _scheduleAlignToSelected({required bool animate, int attempt = 0}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToSelectedDay(animate: true);
+      if (!mounted) return;
+      final aligned = _alignToSelectedDay(animate: animate);
+      if (!aligned && attempt < 10) {
+        _scheduleAlignToSelected(animate: animate, attempt: attempt + 1);
+      } else {
+        _pendingInitialScroll = false;
+      }
     });
   }
 
@@ -109,13 +120,17 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
     );
   }
 
-  void _scrollToSelectedDay({required bool animate}) {
-    if (!_scrollController.hasClients) return;
+  /// Retorna `true` quando o scroll foi aplicado (lista pronta).
+  bool _alignToSelectedDay({required bool animate}) {
+    if (!_scrollController.hasClients) return false;
 
     final index = _dayIndexFor(widget.selectedDate).clamp(0, _totalDays - 1);
     final position = _scrollController.position;
-    final viewport = position.viewportDimension;
-    if (viewport <= 0) return;
+    final viewport = _listWidth > 0 ? _listWidth : position.viewportDimension;
+    if (viewport <= 0) return false;
+
+    // Lista ainda não mediu o conteúdo — maxScrollExtent 0 com índice > 0.
+    if (position.maxScrollExtent <= 0 && index > 0) return false;
 
     final chipWidth = viewport / _visibleChips;
     final itemStride = chipWidth + _chipSpacing;
@@ -131,6 +146,7 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
     } else {
       _scrollController.jumpTo(clamped);
     }
+    return true;
   }
 
   @override
@@ -142,6 +158,13 @@ class _HomeDaySelectorState extends State<HomeDaySelector> {
       clipBehavior: Clip.none,
       child: LayoutBuilder(
         builder: (context, constraints) {
+          _listWidth = constraints.maxWidth;
+
+          if (_pendingInitialScroll && !_initialScrollScheduled) {
+            _initialScrollScheduled = true;
+            _scheduleAlignToSelected(animate: false);
+          }
+
           final chipWidth = constraints.maxWidth / _visibleChips;
           final itemStride = chipWidth + _chipSpacing;
 
