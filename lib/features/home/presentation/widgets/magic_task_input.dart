@@ -7,9 +7,12 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../app/theme/tasker_colors.dart';
+import '../../../../core/config/env_config.dart';
+import '../../../../core/config/magic_input_parser_config.dart';
 import '../../../../core/nlp/extract_errand_list_pt_br.dart';
 import '../../../../core/nlp/extract_place_pt_br.dart';
 import '../../../../core/nlp/extract_when_pt_br.dart';
+import '../../../../core/nlp/gemini_magic_task_parser.dart';
 import '../../../../core/nlp/infer_task_icon_pt_br.dart';
 import '../../../../core/nlp/resolve_place_location.dart';
 import '../../../../core/services/location_service.dart';
@@ -295,6 +298,16 @@ class MagicTaskInputState extends State<MagicTaskInput>
       );
 
   Future<Task> _buildTaskFromText(String text) async {
+    if (MagicInputParserConfig.useGeminiParser && EnvConfig.isGeminiConfigured) {
+      try {
+        return await _buildTaskFromTextWithGemini(text);
+      } catch (e, st) {
+        debugPrint(
+          'MagicTaskInput: Gemini indisponível, usando NLP local: $e\n$st',
+        );
+      }
+    }
+
     final normalized = dedupeRepeatedSpeech(text.trim());
     final placeExtract = extractPlacePTBR(normalized);
     final errandExtract =
@@ -355,14 +368,85 @@ class MagicTaskInputState extends State<MagicTaskInput>
     );
   }
 
+  /// Parser híbrido — Gemini (testes). Fallback automático para NLP local.
+  Future<Task> _buildTaskFromTextWithGemini(String text) async {
+    final normalized = dedupeRepeatedSpeech(text.trim());
+    final referenceDate = TaskStore.dateOnly(widget.selectedDate);
+
+    final parsed = await GeminiMagicTaskParser.parseTaskFromText(
+      transcript: normalized,
+      referenceDate: referenceDate,
+    );
+
+    final nlpIcon = inferTaskIconPTBR(normalized);
+    final iconKey = parsed.iconKey != null
+        ? GeminiMagicTaskParser.resolveIconKey(parsed.iconKey)
+        : nlpIcon.iconKey;
+    final iconBackgroundArgb = parsed.iconKey != null
+        ? GeminiMagicTaskParser.resolveIconBackgroundArgb(iconKey)
+        : nlpIcon.backgroundArgb;
+
+    final data = parsed.dateYmd ?? TaskStore.formatDateYmd(referenceDate);
+    final hora = parsed.timeHHMM ?? '';
+
+    final descricao = parsed.errandItems.isEmpty
+        ? ''
+        : formatErrandDescription(parsed.errandItems);
+
+    var title = _capFirst(parsed.title);
+    if (parsed.placeSearchQuery != null &&
+        parsed.errandItems.isNotEmpty &&
+        parsed.placeSearchQuery!.trim().isNotEmpty) {
+      title = _capFirst(
+        errandTitleForPlace(parsed.placeSearchQuery!.trim(), 'comprar'),
+      );
+    }
+
+    TaskLocation? location;
+    if (parsed.placeSearchQuery != null && !parsed.placeSkipGeocoding) {
+      final placeExtract = ExtractPlaceResult(
+        searchQuery: parsed.placeSearchQuery!,
+        matchedText: parsed.placeSearchQuery!,
+        skipGeocoding: false,
+      );
+      var near = await LocationService.getQuickLocationForMap();
+      near ??= await LocationService.refineLocationForMap();
+      final resolved = await resolvePlaceLocation(placeExtract, near: near);
+      location = resolved?.location;
+    }
+
+    final now = DateTime.now();
+
+    return Task(
+      id: _uuid.v4(),
+      title: title,
+      descricao: descricao,
+      data: data,
+      hora: hora,
+      location: location,
+      iconKey: iconKey,
+      iconBackgroundArgb: iconBackgroundArgb,
+      createdAt: now,
+      lastUpdated: now,
+    );
+  }
+
   Future<void> _createTaskFromText(String text) async {
     if (_isSubmitting || text.trim().isEmpty) return;
 
     setState(() => _isSubmitting = true);
     try {
-      final placeHint = extractPlacePTBR(text.trim());
-      if (placeHint != null && !placeHint.skipGeocoding) {
-        _setHint('Localizando endereço…', duration: const Duration(seconds: 6));
+      if (MagicInputParserConfig.useGeminiParser &&
+          EnvConfig.isGeminiConfigured) {
+        _setHint('Interpretando com IA…', duration: const Duration(seconds: 8));
+      } else {
+        final placeHint = extractPlacePTBR(text.trim());
+        if (placeHint != null && !placeHint.skipGeocoding) {
+          _setHint(
+            'Localizando endereço…',
+            duration: const Duration(seconds: 6),
+          );
+        }
       }
       final task = await _buildTaskFromText(text.trim());
       if (!mounted) return;
