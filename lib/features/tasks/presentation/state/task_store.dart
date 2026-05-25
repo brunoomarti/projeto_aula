@@ -16,9 +16,14 @@ class TaskStore extends ChangeNotifier {
   List<Task> _tasks = [];
   bool _initialized = false;
   bool _loading = false;
+  Map<String, ({int total, int completed})>? _statsByDate;
+  int _statsVersion = 0;
 
   bool get isLoading => _loading;
   bool get isInitialized => _initialized;
+
+  /// Incrementa quando contagens por dia mudam — útil para [Selector].
+  int get statsVersion => _statsVersion;
 
   /// Lista imutável de todas as tarefas (inclui soft-deleted).
   List<Task> get tasks => List.unmodifiable(_tasks);
@@ -44,6 +49,7 @@ class TaskStore extends ChangeNotifier {
       _initialized = true;
     } finally {
       _loading = false;
+      _invalidateStatsCache();
       notifyListeners();
     }
   }
@@ -98,9 +104,32 @@ class TaskStore extends ChangeNotifier {
 
   /// Resumo de conclusão das tarefas de um dia.
   ({int total, int completed}) taskStatsForDate(DateTime date, {DateTime? now}) {
-    final tasks = tasksForDate(date, now: now);
-    final completed = tasks.where((t) => t.done).length;
-    return (total: tasks.length, completed: completed);
+    _ensureStatsCache(now: now);
+    final ymd = formatDateYmd(date);
+    return _statsByDate![ymd] ?? (total: 0, completed: 0);
+  }
+
+  void _invalidateStatsCache() {
+    _statsByDate = null;
+    _statsVersion++;
+  }
+
+  void _ensureStatsCache({DateTime? now}) {
+    if (_statsByDate != null) return;
+
+    final hoje = formatDateYmd(now ?? DateTime.now());
+    final counts = <String, ({int total, int completed})>{};
+
+    for (final task in activeTasks) {
+      final ymd = task.data.isEmpty ? hoje : task.data;
+      final current = counts[ymd] ?? (total: 0, completed: 0);
+      counts[ymd] = (
+        total: current.total + 1,
+        completed: current.completed + (task.done ? 1 : 0),
+      );
+    }
+
+    _statsByDate = counts;
   }
 
   /// Tarefas de hoje, ordenadas (pendentes antes, depois por hora).
@@ -175,6 +204,7 @@ class TaskStore extends ChangeNotifier {
   }) async {
     final snapshot = _tasks;
     mutate();
+    _invalidateStatsCache();
     notifyListeners();
 
     try {
@@ -182,6 +212,7 @@ class TaskStore extends ChangeNotifier {
     } catch (e, st) {
       debugPrint('TaskStore._applyMutation: $e\n$st');
       _tasks = snapshot;
+      _invalidateStatsCache();
       notifyListeners();
       rethrow;
     }

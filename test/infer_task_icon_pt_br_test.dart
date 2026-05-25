@@ -28,6 +28,26 @@ void main() {
       expect(r.iconKey, 'gym');
     });
 
+    test('futebol → esporte com bola', () {
+      final r = inferTaskIconPTBR('Treino de futebol sábado às 9h');
+      expect(r.iconKey, 'ball_sports');
+    });
+
+    test('vôlei → esporte com bola', () {
+      final r = inferTaskIconPTBR('Jogar vôlei com o pessoal à noite');
+      expect(r.iconKey, 'ball_sports');
+    });
+
+    test('natação → swimming', () {
+      final r = inferTaskIconPTBR('Aula de natação amanhã às 7h');
+      expect(r.iconKey, 'swimming');
+    });
+
+    test('piscina → swimming', () {
+      final r = inferTaskIconPTBR('Treino na piscina hoje cedo');
+      expect(r.iconKey, 'swimming');
+    });
+
     test('texto genérico → task', () {
       final r = inferTaskIconPTBR('Terminar aquela coisa importante');
       expect(r.iconKey, kGenericTaskIconKey);

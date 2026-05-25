@@ -53,6 +53,7 @@ class _AnimatedTaskListState<T> extends State<AnimatedTaskList<T>>
           setState(() => _activeOffsets = const {});
         }
       });
+    _scheduleHeightCapture();
   }
 
   @override
@@ -74,7 +75,15 @@ class _AnimatedTaskListState<T> extends State<AnimatedTaskList<T>>
     } else {
       _layoutIds = newIds;
       _activeOffsets = const {};
+      _scheduleHeightCapture();
     }
+  }
+
+  void _scheduleHeightCapture() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _captureHeights();
+    });
   }
 
   @override
@@ -108,6 +117,7 @@ class _AnimatedTaskListState<T> extends State<AnimatedTaskList<T>>
   void _scheduleReorderAnimation(List<String> oldIds, List<String> newIds) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _captureHeights();
       _startReorderAnimation(oldIds, newIds);
     });
   }
@@ -196,15 +206,11 @@ class _AnimatedTaskListState<T> extends State<AnimatedTaskList<T>>
 
   @override
   Widget build(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _captureHeights();
-    });
-
     final items = _orderedItems;
 
     return ListView.separated(
-      clipBehavior: Clip.hardEdge,
+      // Permite que o card deslize para dentro da área de padding lateral.
+      clipBehavior: Clip.none,
       padding: widget.padding,
       itemCount: items.length,
       separatorBuilder: (context, index) =>

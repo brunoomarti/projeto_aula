@@ -24,6 +24,24 @@ class AddressSuggestion {
   bool get hasCoordinates =>
       location.lat != 0 || location.lng != 0;
 
+  /// Nome do estabelecimento (POI), omitido para endereços de rua.
+  String? get establishmentName {
+    final label = shortLabel.trim();
+    if (label.isEmpty) return null;
+    if (categoryLabel == 'Endereço') return null;
+    return label;
+  }
+
+  /// Converte para [TaskLocation] preservando nome do lugar quando aplicável.
+  TaskLocation toTaskLocation() {
+    final placeName = location.name ?? establishmentName;
+    return TaskLocation(
+      lat: location.lat,
+      lng: location.lng,
+      name: placeName,
+    );
+  }
+
   /// Detalhes do lugar via [GeocodeService] / Places API (New).
   factory AddressSuggestion.fromGooglePlace(
     Map<String, dynamic> json, {
@@ -59,10 +77,12 @@ class AddressSuggestion {
         (json['id'] as String?) ??
         (json['name'] as String?);
 
+    final placeName = name.isNotEmpty && categoryLabel != 'Endereço' ? name : null;
+
     return AddressSuggestion(
       displayName: displayName.isNotEmpty ? displayName : shortLabel,
       shortLabel: shortLabel.isNotEmpty ? shortLabel : displayName,
-      location: TaskLocation(lat: lat, lng: lng),
+      location: TaskLocation(lat: lat, lng: lng, name: placeName),
       categoryLabel: categoryLabel,
       placeId: id,
     );

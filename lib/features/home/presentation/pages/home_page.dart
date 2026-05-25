@@ -10,6 +10,7 @@ import '../../../profile/presentation/pages/profile_page.dart';
 import '../../../tasks/tasks.dart';
 import '../widgets/animated_task_list.dart';
 import '../widgets/home_day_selector.dart';
+import '../widgets/home_day_swipe_detector.dart';
 import '../widgets/home_new_task_button.dart';
 import '../widgets/magic_task_input.dart';
 import '../widgets/user_dock.dart';
@@ -47,12 +48,11 @@ class HomePage extends StatefulWidget {
 class HomePageState extends State<HomePage> {
   String? _displayName;
   late DateTime _selectedDay;
+  final GlobalKey<_HomeTaskListSectionState> _taskListSectionKey =
+      GlobalKey<_HomeTaskListSectionState>();
 
-  final Map<String, bool> _completionFlash = {};
-  final Map<String, Timer> _flashTimers = {};
-
-  String? _openSwipeId;
-  SwipeOpenDirection? _openSwipeDir;
+  int _daySlideDirection = 0;
+  bool _magicInputChromeActive = false;
   String? _confirmDeleteId;
 
   @override
@@ -64,9 +64,6 @@ class HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
-    for (final t in _flashTimers.values) {
-      t.cancel();
-    }
     super.dispose();
   }
 
@@ -74,17 +71,6 @@ class HomePageState extends State<HomePage> {
     final name = await UserLocalService.getDisplayName();
     if (!mounted) return;
     setState(() => _displayName = name);
-  }
-
-  void _scheduleFlashEnd(String id) {
-    _flashTimers[id]?.cancel();
-    _flashTimers[id] = Timer(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
-      setState(() {
-        _completionFlash[id] = false;
-        _flashTimers.remove(id);
-      });
-    });
   }
 
   Future<void> _openProfile() async {
@@ -113,33 +99,39 @@ class HomePageState extends State<HomePage> {
     }
   }
 
-  void _openSwipe(String? id, SwipeOpenDirection? dir) {
+  bool get _isSelectedToday {
+    final today = TaskStore.dateOnly(DateTime.now());
+    return _selectedDay.year == today.year &&
+        _selectedDay.month == today.month &&
+        _selectedDay.day == today.day;
+  }
+
+  void _shiftSelectedDay(int delta) {
+    if (delta == 0) return;
     setState(() {
-      if (id == null) {
-        _openSwipeId = null;
-        _openSwipeDir = null;
-      } else {
-        _openSwipeId = id;
-        _openSwipeDir = dir ?? SwipeOpenDirection.right;
-      }
+      _daySlideDirection = delta > 0 ? 1 : -1;
+      _selectedDay = TaskStore.dateOnly(
+        _selectedDay.add(Duration(days: delta)),
+      );
     });
   }
 
-  void _closeSwipe() {
-    setState(() {
-      _openSwipeId = null;
-      _openSwipeDir = null;
-    });
+  void _goToPreviousDay() => _shiftSelectedDay(-1);
+
+  void _goToNextDay() => _shiftSelectedDay(1);
+
+  void _askDeleteTask(String id) {
+    setState(() => _confirmDeleteId = id);
   }
 
-  Future<void> _confirmDelete() async {
+  Future<void> _confirmDeleteTask() async {
     final id = _confirmDeleteId;
     if (id == null) return;
 
     try {
       await context.read<TaskStore>().markTaskDeleted(id);
     } catch (e, st) {
-      debugPrint('HomePage._confirmDelete: $e\n$st');
+      debugPrint('HomePage._confirmDeleteTask: $e\n$st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -151,14 +143,26 @@ class HomePageState extends State<HomePage> {
 
     if (!mounted) return;
     setState(() => _confirmDeleteId = null);
-    _closeSwipe();
   }
 
-  bool get _isSelectedToday {
-    final today = TaskStore.dateOnly(DateTime.now());
-    return _selectedDay.year == today.year &&
-        _selectedDay.month == today.month &&
-        _selectedDay.day == today.day;
+  void _dismissMagicInputFocus() {
+    _taskListSectionKey.currentState?.dismissMagicInputFocus();
+  }
+
+  Widget _wrapDismissMagicInputOnTap(Widget child) {
+    return _DismissMagicInputOnTap(
+      onDismiss: _dismissMagicInputFocus,
+      child: child,
+    );
+  }
+
+  Widget _wrapDaySwipe(Widget child, {bool enabled = true}) {
+    return HomeDaySwipeDetector(
+      enabled: enabled,
+      onPreviousDay: _goToPreviousDay,
+      onNextDay: _goToNextDay,
+      child: child,
+    );
   }
 
   Widget _emptyState(int totalSaved) {
@@ -184,6 +188,253 @@ class HomePageState extends State<HomePage> {
     );
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final confirmTask = _confirmDeleteId == null
+        ? null
+        : context.read<TaskStore>().taskById(_confirmDeleteId!);
+
+    return PopScope(
+      canPop: !_magicInputChromeActive,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _dismissMagicInputFocus();
+      },
+      child: Stack(
+        children: [
+          SafeArea(
+          bottom: false,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final pagePadding = TaskerBreakpoints.pagePadding(width);
+              final horizontalPad = EdgeInsets.fromLTRB(
+                pagePadding.left,
+                0,
+                pagePadding.right,
+                0,
+              );
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      pagePadding.left,
+                      _kHomeHeaderTopPadding,
+                      pagePadding.right,
+                      _kHomeHeaderBottomPadding,
+                    ),
+                    child: _wrapDaySwipe(
+                      _wrapDismissMagicInputOnTap(
+                        TaskerResponsiveContent(
+                          width: width,
+                          child: UserDock(
+                            displayName: _displayName,
+                            selectedDate: _selectedDay,
+                            onProfileTap: _openProfile,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  _wrapDaySwipe(
+                    _wrapDismissMagicInputOnTap(
+                      const SizedBox(
+                        height: _kDaySelectorGap,
+                        width: double.infinity,
+                      ),
+                    ),
+                  ),
+                  _wrapDaySwipe(
+                    _wrapDismissMagicInputOnTap(
+                      HomeDaySelector(
+                        selectedDate: _selectedDay,
+                        edgeFadeWidth: pagePadding.left * 1.75,
+                        onDateSelected: (date) {
+                          final next = TaskStore.dateOnly(date);
+                          setState(() {
+                            _daySlideDirection = next.isAfter(_selectedDay)
+                                ? 1
+                                : next.isBefore(_selectedDay)
+                                    ? -1
+                                    : 0;
+                            _selectedDay = next;
+                          });
+                          _dismissMagicInputFocus();
+                        },
+                      ),
+                    ),
+                  ),
+                  _wrapDaySwipe(
+                    _wrapDismissMagicInputOnTap(
+                      const SizedBox(
+                        height: _kDaySelectorGap,
+                        width: double.infinity,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: horizontalPad,
+                    child: TaskerResponsiveContent(
+                      width: width,
+                      child: HomeNewTaskButton(onPressed: _openNewTask),
+                    ),
+                  ),
+                  _wrapDaySwipe(
+                    _wrapDismissMagicInputOnTap(
+                      const SizedBox(
+                        height: _kHomeSectionGap,
+                        width: double.infinity,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: horizontalPad,
+                      child: TaskerResponsiveContent(
+                        width: width,
+                        child: _HomeTaskListSection(
+                          key: _taskListSectionKey,
+                          selectedDay: _selectedDay,
+                          onPreviousDay: _goToPreviousDay,
+                          onNextDay: _goToNextDay,
+                          onAskDeleteTask: _askDeleteTask,
+                          onMagicInputChromeActiveChanged: (active) {
+                            if (_magicInputChromeActive != active) {
+                              setState(() => _magicInputChromeActive = active);
+                            }
+                          },
+                          daySlideDirection: _daySlideDirection,
+                          emptyStateBuilder: _emptyState,
+                          wrapDaySwipe: _wrapDaySwipe,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+          Positioned.fill(
+            child: ConfirmDeleteDialog(
+              open: _confirmDeleteId != null,
+              taskTitle: confirmTask?.title,
+              onCancel: () => setState(() => _confirmDeleteId = null),
+              onConfirm: _confirmDeleteTask,
+            ),
+          ),
+      ],
+    ),
+    );
+  }
+}
+
+/// Snapshot da lista — [Selector] só reconstrói quando algo relevante muda.
+class _HomeTaskListSnapshot {
+  const _HomeTaskListSnapshot({
+    required this.isLoading,
+    required this.tasks,
+    required this.totalActiveCount,
+  });
+
+  final bool isLoading;
+  final List<Task> tasks;
+  final int totalActiveCount;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! _HomeTaskListSnapshot) return false;
+    if (isLoading != other.isLoading ||
+        totalActiveCount != other.totalActiveCount ||
+        tasks.length != other.tasks.length) {
+      return false;
+    }
+    for (var i = 0; i < tasks.length; i++) {
+      final a = tasks[i];
+      final b = other.tasks[i];
+      if (a.id != b.id ||
+          a.done != b.done ||
+          a.title != b.title ||
+          a.hora != b.hora) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hash(isLoading, totalActiveCount, tasks.length);
+}
+
+/// Lista de tarefas do dia — estado de swipe isolado do restante da home.
+class _HomeDayTasksList extends StatefulWidget {
+  const _HomeDayTasksList({
+    required this.selectedDay,
+    required this.daySlideDirection,
+    required this.scrollBottomPadding,
+    required this.emptyStateBuilder,
+    required this.wrapDaySwipe,
+    required this.onAskDeleteTask,
+  });
+
+  final DateTime selectedDay;
+  final int daySlideDirection;
+  final double scrollBottomPadding;
+  final Widget Function(int totalActiveCount) emptyStateBuilder;
+  final Widget Function(Widget child, {bool enabled}) wrapDaySwipe;
+  final ValueChanged<String> onAskDeleteTask;
+
+  @override
+  State<_HomeDayTasksList> createState() => _HomeDayTasksListState();
+}
+
+class _HomeDayTasksListState extends State<_HomeDayTasksList> {
+  final Map<String, bool> _completionFlash = {};
+  final Map<String, Timer> _flashTimers = {};
+
+  String? _openSwipeId;
+  SwipeOpenDirection? _openSwipeDir;
+
+  @override
+  void dispose() {
+    for (final t in _flashTimers.values) {
+      t.cancel();
+    }
+    super.dispose();
+  }
+
+  void _scheduleFlashEnd(String id) {
+    _flashTimers[id]?.cancel();
+    _flashTimers[id] = Timer(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      setState(() {
+        _completionFlash[id] = false;
+        _flashTimers.remove(id);
+      });
+    });
+  }
+
+  void _openSwipe(String? id, SwipeOpenDirection? dir) {
+    setState(() {
+      if (id == null) {
+        _openSwipeId = null;
+        _openSwipeDir = null;
+      } else {
+        _openSwipeId = id;
+        _openSwipeDir = dir ?? SwipeOpenDirection.right;
+      }
+    });
+  }
+
+  void _closeSwipe() {
+    setState(() {
+      _openSwipeId = null;
+      _openSwipeDir = null;
+    });
+  }
+
   Widget _buildSwipeableTaskCard(Task task, TaskStore store) {
     final id = task.id;
     return SwipeableTaskCard(
@@ -194,7 +445,8 @@ class HomePageState extends State<HomePage> {
       onOpenSwipe: _openSwipe,
       onCloseSwipe: _closeSwipe,
       onAskDelete: () {
-        setState(() => _confirmDeleteId = id);
+        _closeSwipe();
+        widget.onAskDeleteTask(id);
       },
       onOpenDetails: () async {
         if (_openSwipeId != null) {
@@ -224,7 +476,7 @@ class HomePageState extends State<HomePage> {
         try {
           await store.updateTaskDone(id, next);
         } catch (e, st) {
-          debugPrint('HomePage.onToggleDone: $e\n$st');
+          debugPrint('_HomeDayTasksList.onToggleDone: $e\n$st');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -252,240 +504,240 @@ class HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildTaskList(
-    TaskStore store, {
-    required double scrollBottomPadding,
-  }) {
-    if (store.isLoading) {
-      return Padding(
-        padding: EdgeInsets.only(bottom: scrollBottomPadding),
-        child: const Center(child: CircularProgressIndicator()),
+  Widget _buildContent(_HomeTaskListSnapshot snapshot, TaskStore store) {
+    final padding = EdgeInsets.only(bottom: widget.scrollBottomPadding);
+
+    if (snapshot.isLoading) {
+      return SizedBox.expand(
+        child: Padding(
+          padding: padding,
+          child: widget.wrapDaySwipe(
+            const Center(child: CircularProgressIndicator()),
+          ),
+        ),
       );
     }
 
-    final tasks = store.tasksForDate(_selectedDay);
-    if (tasks.isEmpty) {
-      return Padding(
-        padding: EdgeInsets.only(bottom: scrollBottomPadding),
-        child: _emptyState(store.totalActiveCount),
+    if (snapshot.tasks.isEmpty) {
+      return SizedBox.expand(
+        child: Padding(
+          padding: padding,
+          child: widget.wrapDaySwipe(
+            widget.emptyStateBuilder(snapshot.totalActiveCount),
+          ),
+        ),
       );
     }
 
-    return AnimatedTaskList<Task>(
-      padding: EdgeInsets.only(bottom: scrollBottomPadding),
-      items: tasks,
-      itemId: (task) => task.id,
-      itemBuilder: (context, task) => _buildSwipeableTaskCard(task, store),
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 240),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        final offset = 0.1 * widget.daySlideDirection;
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: Offset(offset, 0),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      layoutBuilder: (currentChild, previousChildren) {
+        return Stack(
+          alignment: Alignment.topCenter,
+          children: [
+            ...previousChildren,
+            if (currentChild != null) currentChild,
+          ],
+        );
+      },
+      child: KeyedSubtree(
+        key: ValueKey(TaskStore.formatDateYmd(widget.selectedDay)),
+        child: AnimatedTaskList<Task>(
+          padding: padding,
+          items: snapshot.tasks,
+          itemId: (task) => task.id,
+          itemBuilder: (context, task) => _buildSwipeableTaskCard(task, store),
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final store = context.watch<TaskStore>();
-    final tasks = store.tasksForDate(_selectedDay);
-    final confirmTask = _confirmDeleteId == null
-        ? null
-        : tasks.cast<Task?>().firstWhere(
-              (t) => t?.id == _confirmDeleteId,
-              orElse: () => store.taskById(_confirmDeleteId!),
-            );
-
-    return Stack(
-      children: [
-        SafeArea(
-          bottom: false,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth;
-              final pagePadding = TaskerBreakpoints.pagePadding(width);
-              final horizontalPad = EdgeInsets.fromLTRB(
-                pagePadding.left,
-                0,
-                pagePadding.right,
-                0,
-              );
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      pagePadding.left,
-                      _kHomeHeaderTopPadding,
-                      pagePadding.right,
-                      _kHomeHeaderBottomPadding,
-                    ),
-                    child: TaskerResponsiveContent(
-                      width: width,
-                      child: UserDock(
-                        displayName: _displayName,
-                        selectedDate: _selectedDay,
-                        onProfileTap: _openProfile,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: _kDaySelectorGap),
-                  HomeDaySelector(
-                    selectedDate: _selectedDay,
-                    edgeFadeWidth: pagePadding.left * 1.75,
-                    onDateSelected: (date) {
-                      setState(
-                        () => _selectedDay = TaskStore.dateOnly(date),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: _kDaySelectorGap),
-                  Expanded(
-                    child: Padding(
-                      padding: horizontalPad,
-                      child: TaskerResponsiveContent(
-                        width: width,
-                        child: _HomeTaskListSection(
-                          selectedDay: _selectedDay,
-                          onNewTask: _openNewTask,
-                          taskListBuilder: (scrollBottomPadding) =>
-                              _buildTaskList(
-                            store,
-                            scrollBottomPadding: scrollBottomPadding,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-        Positioned.fill(
-          child: ConfirmDeleteDialog(
-            open: _confirmDeleteId != null,
-            taskTitle: confirmTask?.title,
-            onCancel: () => setState(() => _confirmDeleteId = null),
-            onConfirm: _confirmDelete,
-          ),
-        ),
-      ],
+    final snapshot = context.select<TaskStore, _HomeTaskListSnapshot>(
+      (store) => _HomeTaskListSnapshot(
+        isLoading: store.isLoading,
+        tasks: store.tasksForDate(widget.selectedDay),
+        totalActiveCount: store.totalActiveCount,
+      ),
     );
+    final store = context.read<TaskStore>();
+    return _buildContent(snapshot, store);
   }
 }
 
 /// Lista scrollável com botão «Nova tarefa» e magic input fixos por cima.
 class _HomeTaskListSection extends StatefulWidget {
   const _HomeTaskListSection({
+    super.key,
     required this.selectedDay,
-    required this.onNewTask,
-    required this.taskListBuilder,
+    required this.onPreviousDay,
+    required this.onNextDay,
+    required this.onAskDeleteTask,
+    required this.onMagicInputChromeActiveChanged,
+    required this.daySlideDirection,
+    required this.emptyStateBuilder,
+    required this.wrapDaySwipe,
   });
 
   final DateTime selectedDay;
-  final VoidCallback onNewTask;
-  final Widget Function(double scrollBottomPadding) taskListBuilder;
+  final VoidCallback onPreviousDay;
+  final VoidCallback onNextDay;
+  final ValueChanged<String> onAskDeleteTask;
+  final ValueChanged<bool> onMagicInputChromeActiveChanged;
+  final int daySlideDirection;
+  final Widget Function(int totalActiveCount) emptyStateBuilder;
+  final Widget Function(Widget child, {bool enabled}) wrapDaySwipe;
 
   @override
   State<_HomeTaskListSection> createState() => _HomeTaskListSectionState();
 }
 
 class _HomeTaskListSectionState extends State<_HomeTaskListSection> {
-  final GlobalKey _headerKey = GlobalKey();
   final GlobalKey _footerKey = GlobalKey();
   final GlobalKey<MagicTaskInputState> _magicInputKey = GlobalKey();
 
-  double _headerHeight = 0;
   double _footerHeight = 0;
-  bool _showBottomListFade = false;
+  final ValueNotifier<bool> _showBottomListFade = ValueNotifier(false);
   bool _magicInputActive = false;
+  bool _footerPointerActive = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _measureChrome());
+    _scheduleMeasureFooter();
+  }
+
+  @override
+  void dispose() {
+    _showBottomListFade.dispose();
+    super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant _HomeTaskListSection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _measureChrome());
+    if (oldWidget.selectedDay != widget.selectedDay) return;
   }
 
-  void _measureChrome() {
-    if (!mounted) return;
+  void _scheduleMeasureFooter({int attempt = 0}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final measured = _measureFooter();
+      if (!measured && attempt < 8) {
+        _scheduleMeasureFooter(attempt: attempt + 1);
+      }
+    });
+  }
 
-    final headerBox =
-        _headerKey.currentContext?.findRenderObject() as RenderBox?;
+  bool _measureFooter() {
+    if (!mounted) return false;
+
     final footerBox =
         _footerKey.currentContext?.findRenderObject() as RenderBox?;
 
-    final nextHeader =
-        headerBox?.hasSize == true ? headerBox!.size.height.toDouble() : 0.0;
     final nextFooter =
         footerBox?.hasSize == true ? footerBox!.size.height.toDouble() : 0.0;
 
-    if (nextHeader != _headerHeight || nextFooter != _footerHeight) {
+    if (nextFooter != _footerHeight) {
       setState(() {
-        _headerHeight = nextHeader;
         _footerHeight = nextFooter;
       });
     }
+
+    return nextFooter > 0;
+  }
+
+  void dismissMagicInputFocus() {
+    if (_footerPointerActive) return;
+    final state = _magicInputKey.currentState;
+    if (state?.isChromeActive ?? false) {
+      state!.dismissChrome();
+    }
+  }
+
+  bool _isPointerOverMagicInputFooter(Offset globalPosition) {
+    final box =
+        _footerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return false;
+    final local = box.globalToLocal(globalPosition);
+    return local.dx >= 0 &&
+        local.dy >= 0 &&
+        local.dx <= box.size.width &&
+        local.dy <= box.size.height;
   }
 
   @override
   Widget build(BuildContext context) {
     final scrollBottomPadding =
         _footerHeight + _kTaskListScrollEndInset;
+    final magicInputSwipeEnabled = !_magicInputActive;
+    final contentMediaQuery = MediaQuery.of(context).copyWith(
+      viewInsets: EdgeInsets.zero,
+    );
 
-    return PopScope(
-      canPop: !_magicInputActive,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        _magicInputKey.currentState?.dismissChrome();
-      },
-      child: Stack(
+    return Stack(
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
-            child: Padding(
-              padding: EdgeInsets.only(top: _headerHeight),
-              child: ClipRect(
-                child: _ScrollEdgeFades(
-                  topFadeHeight: _kTaskListTopFadeHeight,
-                  renderBottomFade: false,
-                  onBottomFadeChanged: (visible) {
-                    if (_showBottomListFade != visible) {
-                      setState(() => _showBottomListFade = visible);
-                    }
-                  },
-                  child: widget.taskListBuilder(scrollBottomPadding),
-                ),
-              ),
-            ),
-          ),
-          if (_showBottomListFade)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: _footerHeight + _kTaskListBottomFadeHeight,
-              child: const IgnorePointer(
-                child: _VerticalEdgeFade(top: false, softEdge: true),
-              ),
-            ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: KeyedSubtree(
-              key: _headerKey,
-              child: ColoredBox(
-                color: TaskerColors.appBackground,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    HomeNewTaskButton(onPressed: widget.onNewTask),
-                    const SizedBox(height: _kHomeSectionGap),
-                  ],
-                ),
+            child: MediaQuery(
+              data: contentMediaQuery,
+              child: Stack(
+                fit: StackFit.expand,
+                clipBehavior: Clip.none,
+                children: [
+                  _DismissMagicInputOnTap(
+                    onDismiss: dismissMagicInputFocus,
+                    shouldIgnorePointerAt: _isPointerOverMagicInputFooter,
+                    child: _ScrollEdgeFades(
+                      topFadeHeight: _kTaskListTopFadeHeight,
+                      renderBottomFade: false,
+                      onBottomFadeChanged: (visible) {
+                        if (_showBottomListFade.value != visible) {
+                          _showBottomListFade.value = visible;
+                        }
+                      },
+                      child: _HomeDayTasksList(
+                        selectedDay: widget.selectedDay,
+                        daySlideDirection: widget.daySlideDirection,
+                        scrollBottomPadding: scrollBottomPadding,
+                        emptyStateBuilder: widget.emptyStateBuilder,
+                        wrapDaySwipe: widget.wrapDaySwipe,
+                        onAskDeleteTask: widget.onAskDeleteTask,
+                      ),
+                    ),
+                  ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: _showBottomListFade,
+                    builder: (context, showBottomListFade, _) {
+                      if (!showBottomListFade) return const SizedBox.shrink();
+                      return Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: _footerHeight + _kTaskListBottomFadeHeight,
+                        child: const IgnorePointer(
+                          child: _VerticalEdgeFade(top: false, softEdge: true),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
           ),
@@ -493,29 +745,125 @@ class _HomeTaskListSectionState extends State<_HomeTaskListSection> {
             bottom: 0,
             left: 0,
             right: 0,
-            child: KeyedSubtree(
-              key: _footerKey,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.paddingOf(context).bottom +
-                      _kMagicInputBottomInset,
-                ),
-                child: MagicTaskInput(
-                  key: _magicInputKey,
-                  selectedDate: widget.selectedDay,
-                  placeholder: 'Digite ou fale o que você quer fazer…',
-                  onCreated: () {},
-                  onChromeActiveChanged: (active) {
-                    if (_magicInputActive != active) {
-                      setState(() => _magicInputActive = active);
-                    }
-                  },
+            child: Listener(
+              onPointerDown: (_) => _footerPointerActive = true,
+              onPointerUp: (_) => _footerPointerActive = false,
+              onPointerCancel: (_) => _footerPointerActive = false,
+              child: KeyedSubtree(
+                key: _footerKey,
+                child: _MagicInputKeyboardLift(
+                  baseBottomInset: _kMagicInputBottomInset,
+                  child: HomeDaySwipeDetector(
+                    enabled: magicInputSwipeEnabled,
+                    onPreviousDay: widget.onPreviousDay,
+                    onNextDay: widget.onNextDay,
+                    child: MagicTaskInput(
+                      key: _magicInputKey,
+                      selectedDate: widget.selectedDay,
+                      placeholder: 'Digite ou fale o que você quer fazer…',
+                      onCreated: () {},
+                      onChromeActiveChanged: (active) {
+                        if (_magicInputActive != active) {
+                          setState(() => _magicInputActive = active);
+                        }
+                        widget.onMagicInputChromeActiveChanged(active);
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
         ],
+    );
+  }
+
+}
+
+/// Sobe só o magic input com o teclado — rebuild isolado do restante da home.
+class _MagicInputKeyboardLift extends StatelessWidget {
+  const _MagicInputKeyboardLift({
+    required this.baseBottomInset,
+    required this.child,
+  });
+
+  final double baseBottomInset;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: mq.viewInsets.bottom + mq.padding.bottom + baseBottomInset,
       ),
+      child: child,
+    );
+  }
+}
+
+/// Remove foco do magic input em toques curtos, sem atrapalhar arrastes.
+class _DismissMagicInputOnTap extends StatefulWidget {
+  const _DismissMagicInputOnTap({
+    required this.onDismiss,
+    required this.child,
+    this.shouldIgnorePointerAt,
+  });
+
+  final VoidCallback onDismiss;
+  final Widget child;
+  final bool Function(Offset globalPosition)? shouldIgnorePointerAt;
+
+  @override
+  State<_DismissMagicInputOnTap> createState() =>
+      _DismissMagicInputOnTapState();
+}
+
+class _DismissMagicInputOnTapState extends State<_DismissMagicInputOnTap> {
+  Offset? _pointerDown;
+  int? _pointerId;
+  bool _skipDismiss = false;
+
+  static const _maxTapDistance = 18;
+
+  void _onPointerDown(PointerDownEvent event) {
+    _skipDismiss =
+        widget.shouldIgnorePointerAt?.call(event.position) ?? false;
+    if (_skipDismiss) return;
+    _pointerDown = event.position;
+    _pointerId = event.pointer;
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    if (_skipDismiss) {
+      _skipDismiss = false;
+      return;
+    }
+    if (_pointerId != event.pointer || _pointerDown == null) return;
+    final moved = (event.position - _pointerDown!).distance;
+    _pointerDown = null;
+    _pointerId = null;
+    if (moved <= _maxTapDistance) {
+      widget.onDismiss();
+    }
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    _skipDismiss = false;
+    if (_pointerId == event.pointer) {
+      _pointerDown = null;
+      _pointerId = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _onPointerDown,
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerCancel,
+      child: widget.child,
     );
   }
 }
@@ -539,8 +887,8 @@ class _ScrollEdgeFades extends StatefulWidget {
 }
 
 class _ScrollEdgeFadesState extends State<_ScrollEdgeFades> {
-  bool _showTopFade = false;
-  bool _showBottomFade = false;
+  final ValueNotifier<bool> _showTopFade = ValueNotifier(false);
+  final ValueNotifier<bool> _showBottomFade = ValueNotifier(false);
 
   static const _scrollEpsilon = 0.5;
 
@@ -548,6 +896,13 @@ class _ScrollEdgeFadesState extends State<_ScrollEdgeFades> {
   void initState() {
     super.initState();
     _scheduleInitialSync();
+  }
+
+  @override
+  void dispose() {
+    _showTopFade.dispose();
+    _showBottomFade.dispose();
+    super.dispose();
   }
 
   @override
@@ -595,19 +950,17 @@ class _ScrollEdgeFadesState extends State<_ScrollEdgeFades> {
     final showBottom = canScroll &&
         metrics.pixels < metrics.maxScrollExtent - _scrollEpsilon;
 
-    final topChanged = showTop != _showTopFade;
-    final bottomChanged = showBottom != _showBottomFade;
+    final topChanged = showTop != _showTopFade.value;
+    final bottomChanged = showBottom != _showBottomFade.value;
 
     if (!topChanged && !bottomChanged) return;
 
     if (widget.renderBottomFade) {
-      setState(() {
-        _showTopFade = showTop;
-        _showBottomFade = showBottom;
-      });
+      if (topChanged) _showTopFade.value = showTop;
+      if (bottomChanged) _showBottomFade.value = showBottom;
     } else {
       if (topChanged) {
-        setState(() => _showTopFade = showTop);
+        _showTopFade.value = showTop;
       }
       if (bottomChanged) {
         widget.onBottomFadeChanged?.call(showBottom);
@@ -627,21 +980,32 @@ class _ScrollEdgeFadesState extends State<_ScrollEdgeFades> {
           },
           child: widget.child,
         ),
-        if (_showTopFade)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: widget.topFadeHeight,
-            child: const _VerticalEdgeFade(top: true, softEdge: true),
-          ),
-        if (widget.renderBottomFade && _showBottomFade)
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: widget.topFadeHeight,
-            child: const _VerticalEdgeFade(top: false),
+        ValueListenableBuilder<bool>(
+          valueListenable: _showTopFade,
+          builder: (context, showTopFade, _) {
+            if (!showTopFade) return const SizedBox.shrink();
+            return Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: widget.topFadeHeight,
+              child: const _VerticalEdgeFade(top: true, softEdge: true),
+            );
+          },
+        ),
+        if (widget.renderBottomFade)
+          ValueListenableBuilder<bool>(
+            valueListenable: _showBottomFade,
+            builder: (context, showBottomFade, _) {
+              if (!showBottomFade) return const SizedBox.shrink();
+              return Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: widget.topFadeHeight,
+                child: const _VerticalEdgeFade(top: false),
+              );
+            },
           ),
       ],
     );

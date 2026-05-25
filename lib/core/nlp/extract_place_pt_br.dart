@@ -576,3 +576,134 @@ String stripPlaceFromTitle(String title, ExtractPlaceResult place) {
       .trim();
   return t;
 }
+
+/// Nome legível do estabelecimento extraído do transcript (sem preposição).
+String formatPlaceDisplayName(ExtractPlaceResult place) {
+  var name = place.matchedText.trim();
+  name = name.replaceFirst(
+    RegExp(
+      r'^(?:no|na|nem|em|ao|à|aos|nas|nos)\s+',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  if (name.isEmpty) name = place.searchQuery.trim();
+  return finalizeTitlePT(smartTitleRepairPT(name)).trim();
+}
+
+/// Inferência de destino genérico a partir do tipo de local (ex.: «ao veterinário»).
+String? inferDestinationPhraseFromPlace(String placeQuery) {
+  final low = normPT(placeQuery);
+  if (low.isEmpty) return null;
+
+  if (RegExp(r'vet[ei]?r[ie]?n[aá]?ri').hasMatch(low) ||
+      low.contains('pet shop') ||
+      low.contains('petshop')) {
+    return 'ao veterinário';
+  }
+  if (low.contains('dentist') || low.contains('odontolog')) {
+    return 'ao dentista';
+  }
+  if (low.contains('farmaci')) return 'na farmácia';
+  if (low.contains('academia')) return 'na academia';
+  if (low.contains('clinica')) return 'à clínica';
+  if (low.contains('consultorio')) return 'ao consultório';
+  if (low.contains('hospital')) return 'ao hospital';
+  if (low.contains('supermercado') || low.contains('mercado')) {
+    return 'no mercado';
+  }
+  if (low.contains('padaria')) return 'na padaria';
+  if (low.contains('shopping')) return 'no shopping';
+  if (low.contains('restaurante') || low.contains('lanchonete')) {
+    return 'no restaurante';
+  }
+  if (low.contains('correios')) return 'nos correios';
+  if (low.contains('banco')) return 'no banco';
+  if (low.contains('barbearia') ||
+      low.contains('salao') ||
+      low.contains('salão')) {
+    return 'no salão';
+  }
+  if (low.contains('igreja') || low.contains('templo')) return 'na igreja';
+  return null;
+}
+
+bool titleAlreadyHasPlaceDestination(String title) {
+  final low = normPT(title);
+  return RegExp(
+    r'\b(?:ao|à|no|na|em|nos|nas)\s+(?:veterinar|dentist|hospital|farmaci|'
+    r'academia|mercado|supermercado|padaria|shopping|consultorio|clinica|'
+    r'restaurante|correios|banco|salao|igreja)\b',
+  ).hasMatch(low);
+}
+
+/// Enriquece o título com categoria de destino quando o local foi removido.
+String enrichTitleWithPlaceDestination({
+  required String title,
+  String? placeQuery,
+}) {
+  final trimmed = title.trim();
+  if (trimmed.isEmpty || placeQuery == null || placeQuery.trim().isEmpty) {
+    return trimmed;
+  }
+  if (titleAlreadyHasPlaceDestination(trimmed)) return trimmed;
+
+  final dest = inferDestinationPhraseFromPlace(placeQuery);
+  if (dest == null) return trimmed;
+
+  return '$trimmed $dest'.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+bool _isDetranDriverLicenseContext({
+  required String transcript,
+  String? placeQuery,
+}) {
+  final lowTranscript = normPT(transcript);
+  final lowPlace = normPT(placeQuery ?? '');
+  final mentionsDetran =
+      lowTranscript.contains('detran') || lowPlace.contains('detran');
+  if (!mentionsDetran) return false;
+
+  return RegExp(r'\b(?:carteira|cnh|habilit)\b').hasMatch(lowTranscript);
+}
+
+String? _inferDetranDriverLicenseTitle(String transcript) {
+  final low = normPT(transcript);
+
+  if (RegExp(r'\bsegunda\s+via\b').hasMatch(low)) {
+    return 'Emitir segunda via da carteira de motorista';
+  }
+  if (RegExp(r'\brenov').hasMatch(low)) {
+    return 'Renovar carteira de motorista';
+  }
+  if (RegExp(r'\b(?:tirar|emitir|fazer)\b').hasMatch(low)) {
+    return 'Tirar carteira de motorista';
+  }
+  if (RegExp(r'\b(?:atualizar|regularizar|resolver)\b').hasMatch(low)) {
+    return 'Regularizar carteira de motorista';
+  }
+  return 'Carteira de motorista no Detran';
+}
+
+String enrichTitleWithTranscriptContext({
+  required String title,
+  required String transcript,
+  String? placeQuery,
+}) {
+  final trimmed = title.trim();
+  if (trimmed.isEmpty) return trimmed;
+
+  final lowTitle = normPT(trimmed);
+  if (_isDetranDriverLicenseContext(
+    transcript: transcript,
+    placeQuery: placeQuery,
+  )) {
+    if (RegExp(r'\b(?:cnh|habilit|carteira de motorista)\b').hasMatch(lowTitle)) {
+      return finalizeTitlePT(smartTitleRepairPT(trimmed)).trim();
+    }
+    final inferred = _inferDetranDriverLicenseTitle(transcript);
+    if (inferred != null && inferred.isNotEmpty) return inferred;
+  }
+
+  return trimmed;
+}

@@ -18,6 +18,7 @@ class GeminiMagicTaskParseResult {
     this.dateYmd,
     this.timeHHMM,
     this.placeSearchQuery,
+    this.placeDisplayName,
     this.placeSkipGeocoding = false,
     this.errandItems = const [],
     this.iconKey,
@@ -27,6 +28,9 @@ class GeminiMagicTaskParseResult {
   final String? dateYmd;
   final String? timeHHMM;
   final String? placeSearchQuery;
+
+  /// Nome do estabelecimento como o usuário disse (ortografia corrigida).
+  final String? placeDisplayName;
   final bool placeSkipGeocoding;
   final List<String> errandItems;
   final String? iconKey;
@@ -41,6 +45,8 @@ abstract final class GeminiMagicTaskParser {
   static const _validIconKeys = {
     'home',
     'gym',
+    'ball_sports',
+    'swimming',
     'market',
     'shopping',
     'food',
@@ -136,26 +142,31 @@ abstract final class GeminiMagicTaskParser {
     final errand = extractErrandListPTBR(transcript, place: place);
 
     final colloquialTime = _inferColloquialTimePtBr(transcript);
-    final timeHHMM = colloquialTime ?? when.timeHHMM ?? gemini.timeHHMM;
+    final timeHHMM = when.timeHHMM ?? colloquialTime ?? gemini.timeHHMM;
 
     final explicitDate = parseExplicitDate(transcript, ref)?.date;
     final relativeDate = parseRelativeDate(transcript, ref)?.date;
-    final nlpDateYmd = when.dateYmd ??
+    final nlpDateYmd =
+        when.dateYmd ??
         (explicitDate != null ? TaskStore.formatDateYmd(explicitDate) : null) ??
-        (relativeDate != null
-            ? TaskStore.formatDateYmd(relativeDate)
-            : null);
+        (relativeDate != null ? TaskStore.formatDateYmd(relativeDate) : null);
 
     final dateYmd = nlpDateYmd ?? gemini.dateYmd;
 
-    final placeSearchQuery =
-        gemini.placeSearchQuery ?? place?.searchQuery;
+    final placeSearchQuery = gemini.placeSearchQuery ?? place?.searchQuery;
     final placeSkipGeocoding =
         gemini.placeSkipGeocoding || (place?.skipGeocoding ?? false);
+    final placeDisplayName = _resolvePlaceDisplayName(
+      geminiDisplayName: gemini.placeDisplayName,
+      placeSearchQuery: placeSearchQuery,
+      place: place,
+    );
 
-    final errandItems = gemini.errandItems.isNotEmpty
-        ? gemini.errandItems
-        : (errand?.items ?? const <String>[]);
+    final errandItems = _resolveErrandItems(
+      geminiItems: gemini.errandItems,
+      localItems: errand?.items ?? const [],
+    );
+    final geminiActionList = errandItemsLookLikeActions(gemini.errandItems);
 
     var title = gemini.title.trim();
     if (_titleLooksContaminated(title)) {
@@ -172,11 +183,24 @@ abstract final class GeminiMagicTaskParser {
         );
       }
     }
+    final preservedActionTitle =
+        !_titleLooksContaminated(gemini.title) &&
+            (geminiActionList ||
+                errandItemsLookLikeActions(errandItems) ||
+                errandItemsLookLikeActions(errand?.items ?? const []) ||
+                RegExp(r'\bir\s+(?:na|no|nem|em)\b').hasMatch(normPT(gemini.title)))
+        ? gemini.title.trim()
+        : null;
+
     title = _polishTitle(
       title: title,
       transcript: transcript,
       place: place,
-      errand: errand,
+      errand:
+          geminiActionList ||
+              errandItemsLookLikeActions(errand?.items ?? const [])
+          ? null
+          : errand,
       hasTime: timeHHMM != null,
       hasDate: dateYmd != null,
     );
@@ -185,16 +209,61 @@ abstract final class GeminiMagicTaskParser {
           ? when.title.trim()
           : transcript.trim();
     }
+    if (preservedActionTitle != null && preservedActionTitle.isNotEmpty) {
+      title = preservedActionTitle;
+    } else if (errand?.parentTitle != null &&
+        errand!.parentTitle!.trim().isNotEmpty &&
+        errandItemsLookLikeActions(errandItems)) {
+      title = errand.parentTitle!.trim();
+    } else {
+      title = resolveErrandDisplayTitle(
+        primaryTitle: title,
+        place: place,
+        errand: errand,
+        errandItems: errandItems,
+      );
+    }
+
+    final isActionListTitle = preservedActionTitle != null ||
+        (errand?.parentTitle != null &&
+            errandItemsLookLikeActions(errandItems));
+    if (!isActionListTitle && placeSearchQuery != null) {
+      title = enrichTitleWithPlaceDestination(
+        title: title,
+        placeQuery: placeSearchQuery,
+      );
+    }
+    title = enrichTitleWithTranscriptContext(
+      title: title,
+      transcript: transcript,
+      placeQuery: placeSearchQuery,
+    );
 
     return GeminiMagicTaskParseResult(
       title: title,
       dateYmd: dateYmd,
       timeHHMM: timeHHMM,
       placeSearchQuery: placeSearchQuery,
+      placeDisplayName: placeDisplayName,
       placeSkipGeocoding: placeSkipGeocoding,
       errandItems: errandItems,
       iconKey: gemini.iconKey,
     );
+  }
+
+  static String? _resolvePlaceDisplayName({
+    String? geminiDisplayName,
+    String? placeSearchQuery,
+    ExtractPlaceResult? place,
+  }) {
+    final fromGemini = geminiDisplayName?.trim();
+    if (fromGemini != null && fromGemini.isNotEmpty) return fromGemini;
+    if (place != null) return formatPlaceDisplayName(place);
+    final fromQuery = placeSearchQuery?.trim();
+    if (fromQuery != null && fromQuery.isNotEmpty) {
+      return finalizeTitlePT(smartTitleRepairPT(fromQuery)).trim();
+    }
+    return null;
   }
 
   @visibleForTesting
@@ -211,7 +280,9 @@ abstract final class GeminiMagicTaskParser {
 
     final decoded = jsonDecode(text);
     if (decoded is! Map<String, dynamic>) {
-      throw GeminiMagicTaskParserException('Resposta Gemini não é um objeto JSON.');
+      throw GeminiMagicTaskParserException(
+        'Resposta Gemini não é um objeto JSON.',
+      );
     }
     return decoded;
   }
@@ -225,27 +296,46 @@ Extraia uma tarefa e retorne SOMENTE JSON válido (sem markdown):
   "dateYmd": "YYYY-MM-DD ou null",
   "timeHHMM": "HH:mm ou null",
   "placeSearchQuery": "string ou null",
+  "placeDisplayName": "string ou null",
   "placeSkipGeocoding": false,
   "errandItems": [],
   "iconKey": "work|null"
 }
 
 REGRAS CRÍTICAS
-- "title": só o núcleo da ação (ex.: "Reunião de negócios"). NUNCA coloque no title: hora, data, local, números de hora ("duas", "três"), "amanhã", "tarde", "manhã", nome de lugar.
+- "title": núcleo da ação COM categoria de destino quando o usuário foi a um local específico mas não repetiu o tipo no núcleo. Ex.: "levar gata no ama hospital veterinário" → "Levar gata ao veterinário" (NÃO coloque o nome próprio do estabelecimento no title). NUNCA coloque no title: hora, data, números de hora, "amanhã", "tarde", "manhã", nem os itens de uma lista.
+- CONTEXTO DE SERVIÇO (obrigatório): use o local para interpretar termos ambíguos. Ex.: "Detran" + "carteira" = carteira de motorista / CNH, não carteira comum.
+- ORTOGRAFIA (obrigatório em title, errandItems e placeSearchQuery):
+  • Corrija erros de digitação, voz/ASR e autocorretor do celular.
+  • Restaure acentuação PT-BR: "mamao"→"mamão", "maca"→"maçã", "cafe"→"café", "linhaca"→"linhaça", "mercadao"→"Mercadão".
+  • Corrija letras trocadas plausíveis em nomes e palavras comuns: "lavangnoli"→"Lavagnoli", "negocios"→"negócios".
+  • Capitalize nomes próprios de locais/marcas (Sapion, Musa, Mercadão).
+  • Não invente palavras; corrija só o que o usuário claramente quis dizer.
 - "dateYmd": converta expressões relativas para data ISO. "amanhã" = dia seguinte à referência. "dia 29" = dia 29 do mês (mês atual ou próximo). Se NÃO houver data na frase → null (não use a data de referência como dateYmd).
 - Data de referência do calendário (só para calcular "hoje/amanhã/depois de amanhã"): $referenceDateYmd
-- "timeHHMM": hora explícita em 24h. NÃO use 15:00 só porque apareceu "tarde" se houver hora por extenso.
+- "timeHHMM": hora explícita em 24h. NÃO use 15:00 só porque apareceu "tarde" se houver hora por extenso ou construção numérica.
 - Horas por extenso (obrigatório):
   • "meio-dia" / "meio dia" → 12:00
   • "meia-noite" → 00:00
   • "uma da tarde" → 13:00, "duas da tarde" → 14:00, "três da tarde" → 15:00, "quatro da tarde" → 16:00
   • "uma da manhã" → 01:00 ou 07:00 conforme contexto; "sete da manhã" → 07:00, "oito da manhã" → 08:00
   • "duas e meia da tarde" → 14:30
+  • "10 e trinta" → 10:30
+  • "cinco e meia" → 05:30 (ou 17:30 se a frase disser "da tarde")
+  • "15 para as 6" / "15 pras 6" / "seis menos quinze" → 05:45 (ou 17:45 se a frase disser "da tarde")
   • "às 14h", "14:30", "14 horas" → formato HH:mm
-- "placeSearchQuery": nome próprio do local para busca (ex.: "Sapion", "Sapion Nova Educação"). Sem "na/no/em". null se não houver local.
-- "placeSkipGeocoding": true apenas para tipo genérico sem nome ("supermercado", "farmácia").
-- "errandItems": itens de compras/lista quando houver; senão [].
-- "iconKey": um de: home, gym, market, shopping, food, people, tree, walk, work, study, health, pets, travel, event, repair, clothing, beauty, faith, task — ou null.
+- Se não houver período do dia, preserve a hora literal pedida; não invente tarde/noite.
+- "placeSearchQuery": texto para busca geográfica (nome do estabelecimento ou endereço). Sem "na/no/em". null se não houver local nomeado.
+- "placeDisplayName": nome exato do estabelecimento como o usuário disse, ortografia corrigida (ex.: "Ama Hospital Veterinário", "Sapion", "Mercadão"). Sem preposições. null se não houver estabelecimento nomeado ou for só tipo genérico.
+- "placeSkipGeocoding": true apenas para tipo genérico sem nome ("supermercado", "farmácia", "rua").
+- "errandItems": lista de afazeres quando houver 2+ itens OU várias ações. Cada elemento vira uma linha separada no app.
+  • Produtos: ["mamão","banana","café"]
+  • Ações completas (com verbo): ["Pagar uma conta no Mercadão","Comprar linhaça","Buscar um condicional na Musa"]
+  • Separe por vírgula, "e" ou "para": "ir na rua para pagar X, comprar Y e buscar Z"
+  • Cada item deve ser autocontido e ortograficamente corrigido.
+  • Não repita no title o que já está nos errandItems.
+  • Se não houver lista, use [].
+- "iconKey": um de: home, gym, ball_sports, swimming, market, shopping, food, people, tree, walk, work, study, health, pets, travel, event, repair, clothing, beauty, faith, task — ou null.
 
 EXEMPLOS (aprenda o padrão):
 Entrada: "reunião de negócios na sapion amanhã duas da tarde"
@@ -254,118 +344,76 @@ Saída: {"title":"Reunião de negócios","dateYmd":"<amanhã ISO>","timeHHMM":"1
 Entrada: "comprar leite e pão no mercado amanhã"
 Saída: {"title":"Compras no mercado","dateYmd":"<amanhã ISO>","timeHHMM":null,"placeSearchQuery":"mercado","placeSkipGeocoding":true,"errandItems":["leite","pão"],"iconKey":"market"}
 
+Entrada: "ir no supermercado comprar mamao banana e acucar"
+Saída: {"title":"Compras no supermercado","dateYmd":null,"timeHHMM":null,"placeSearchQuery":"supermercado","placeSkipGeocoding":true,"errandItems":["mamão","banana","açúcar"],"iconKey":"market"}
+
+Entrada: "preciso ir na rua para pagar uma conta no mercadao, comprar linhaca, buscar um condicional na musa"
+Saída: {"title":"Ir na rua","dateYmd":null,"timeHHMM":null,"placeSearchQuery":null,"placeSkipGeocoding":true,"errandItems":["Pagar uma conta no Mercadão","Comprar linhaça","Buscar um condicional na Musa"],"iconKey":"walk"}
+
 Entrada: "dentista terça às 15h"
 Saída: {"title":"Dentista","dateYmd":"<próxima terça ISO>","timeHHMM":"15:00","placeSearchQuery":null,"placeSkipGeocoding":false,"errandItems":[],"iconKey":"health"}
+
+Entrada: "dentista 15 pras 6"
+Saída: {"title":"Dentista","dateYmd":null,"timeHHMM":"05:45","placeSearchQuery":null,"placeSkipGeocoding":false,"errandItems":[],"iconKey":"health"}
+
+Entrada: "remédio 10 e trinta"
+Saída: {"title":"Remédio","dateYmd":null,"timeHHMM":"10:30","placeSearchQuery":null,"placeDisplayName":null,"placeSkipGeocoding":false,"errandItems":[],"iconKey":"health"}
+
+Entrada: "levar gata no ama hospital vetrinario as 14h"
+Saída: {"title":"Levar gata ao veterinário","dateYmd":null,"timeHHMM":"14:00","placeSearchQuery":"Ama Hospital Veterinário","placeDisplayName":"Ama Hospital Veterinário","placeSkipGeocoding":false,"errandItems":[],"iconKey":"pets"}
+
+Entrada: "ir no detran renovar a carteira"
+Saída: {"title":"Renovar carteira de motorista","dateYmd":null,"timeHHMM":null,"placeSearchQuery":"Detran","placeDisplayName":"Detran","placeSkipGeocoding":false,"errandItems":[],"iconKey":"task"}
+
+Entrada: "treino de futsal quinta 20h"
+Saída: {"title":"Treino de futsal","dateYmd":null,"timeHHMM":"20:00","placeSearchQuery":null,"placeDisplayName":null,"placeSkipGeocoding":false,"errandItems":[],"iconKey":"ball_sports"}
+
+Entrada: "aula de natação amanhã 7h"
+Saída: {"title":"Aula de natação","dateYmd":"<amanhã ISO>","timeHHMM":"07:00","placeSearchQuery":null,"placeDisplayName":null,"placeSkipGeocoding":false,"errandItems":[],"iconKey":"swimming"}
 
 Texto do usuário (interprete a intenção mesmo se estiver mal escrito ou sem pontuação):
 "$transcript"
 ''';
   }
 
-  static String? _inferColloquialTimePtBr(String text) {
-    final low = normPT(text);
+  static String? _inferColloquialTimePtBr(String text) => parseTime(text)?.time;
 
-    if (RegExp(r'\bmeio[\s-]?dia\b').hasMatch(low)) return '12:00';
-    if (RegExp(r'\bmeia[\s-]?noite\b').hasMatch(low)) return '00:00';
+  static List<String> _resolveErrandItems({
+    required List<String> geminiItems,
+    required List<String> localItems,
+  }) {
+    if (geminiItems.isNotEmpty && localItems.isEmpty) return geminiItems;
+    if (geminiItems.isEmpty && localItems.isNotEmpty) return localItems;
 
-    final afternoon = RegExp(
-      r'\b(uma|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)'
-      r'(?:\s+e\s+meia)?\s+da\s+tarde\b',
-    ).firstMatch(low);
-    if (afternoon != null) {
-      final word = afternoon.group(1)!;
-      final hour = _colloquialHourWordToInt(word);
-      if (hour != null) {
-        var hh = 12 + hour;
-        if (hh > 23) hh = 23;
-        var mm = 0;
-        if (afternoon.group(0)!.contains('meia')) mm = 30;
-        return '${hh.toString().padLeft(2, '0')}:${mm.toString().padLeft(2, '0')}';
-      }
+    if (geminiItems.isEmpty) return const [];
+
+    if (localItems.length > geminiItems.length &&
+        errandItemsLookLikeActions(localItems)) {
+      return localItems;
     }
 
-    final morning = RegExp(
-      r'\b(uma|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)'
-      r'(?:\s+e\s+meia)?\s+da\s+manha\b',
-    ).firstMatch(low);
-    if (morning != null) {
-      final word = morning.group(1)!;
-      final hour = _colloquialHourWordToInt(word);
-      if (hour != null) {
-        var hh = hour;
-        if (word == 'uma' && !morning.group(0)!.contains('meia')) {
-          hh = 7;
-        }
-        var mm = 0;
-        if (morning.group(0)!.contains('meia')) mm = 30;
-        return '${hh.toString().padLeft(2, '0')}:${mm.toString().padLeft(2, '0')}';
-      }
-    }
-
-    return null;
+    return geminiItems;
   }
 
-  static int? _colloquialHourWordToInt(String word) {
-    const map = {
-      'uma': 1,
-      'duas': 2,
-      'tres': 3,
-      'quatro': 4,
-      'cinco': 5,
-      'seis': 6,
-      'sete': 7,
-      'oito': 8,
-      'nove': 9,
-      'dez': 10,
-      'onze': 11,
-      'doze': 12,
-    };
-    return map[word];
-  }
+  @visibleForTesting
+  static List<String> resolveErrandItemsForTest({
+    required List<String> geminiItems,
+    required List<String> localItems,
+  }) => _resolveErrandItems(geminiItems: geminiItems, localItems: localItems);
 
   static bool _titleLooksContaminated(String title) {
     final low = normPT(title);
     if (low.isEmpty) return true;
-    return RegExp(
-      r'\b(duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|uma|tarde|manha|noite|amanha|hoje|meio|meia)\b',
-    ).hasMatch(low);
+    return parseTime(title) != null ||
+        RegExp(
+          r'\b(tarde|manha|noite|madrugada|amanha|hoje|meio|meia)\b',
+        ).hasMatch(low);
   }
 
   /// Remove frases de hora falada («duas da tarde», «meio-dia», etc.).
   @visibleForTesting
-  static String stripColloquialTimePhrasesPT(String text) {
-    var t = normPT(text);
-
-    t = t.replaceAll(RegExp(r'\bmeio[\s-]?dia\b'), ' ');
-    t = t.replaceAll(RegExp(r'\bmeia[\s-]?noite\b'), ' ');
-
-    t = t.replaceAll(
-      RegExp(
-        r'\b(?:as|a|às|à)?\s*'
-        r'(uma|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)'
-        r'(?:\s+e\s+meia)?\s+da\s+tarde\b',
-      ),
-      ' ',
-    );
-    t = t.replaceAll(
-      RegExp(
-        r'\b(?:as|a|às|à)?\s*'
-        r'(uma|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)'
-        r'(?:\s+e\s+meia)?\s+da\s+manha\b',
-      ),
-      ' ',
-    );
-
-    t = t.replaceAll(
-      RegExp(
-        r'\b(uma|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\b',
-      ),
-      ' ',
-    );
-    t = t.replaceAll(RegExp(r'\b(?:da\s+)?(?:tarde|manha|noite)\b'), ' ');
-
-    return t.replaceAll(RegExp(r'\s+'), ' ').trim();
-  }
+  static String stripColloquialTimePhrasesPT(String text) =>
+      stripSpokenTimePhrasesPT(text);
 
   static String _titleFromTranscriptCore(
     String transcript, {
@@ -382,11 +430,7 @@ Texto do usuário (interprete a intenção mesmo se estiver mal escrito ou sem p
       core = stripErrandFromTitle(core, errand);
     }
     core = stripTemporalResidualPT(core);
-    core = cleanTitlePT(
-      core,
-      hasTime: hasTime,
-      hasDate: hasDate,
-    );
+    core = cleanTitlePT(core, hasTime: hasTime, hasDate: hasDate);
     return finalizeTitlePT(smartTitleRepairPT(core)).trim();
   }
 
@@ -414,11 +458,7 @@ Texto do usuário (interprete a intenção mesmo se estiver mal escrito ou sem p
     t = finalizeTitlePT(smartTitleRepairPT(t));
 
     if (t.isEmpty) {
-      t = cleanTitlePT(
-        transcript,
-        hasTime: hasTime,
-        hasDate: hasDate,
-      );
+      t = cleanTitlePT(transcript, hasTime: hasTime, hasDate: hasDate);
       t = finalizeTitlePT(smartTitleRepairPT(t));
     }
 
@@ -488,6 +528,12 @@ Texto do usuário (interprete a intenção mesmo se estiver mal escrito ou sem p
         ? placeRaw.trim()
         : null;
 
+    final displayRaw = map['placeDisplayName'];
+    final placeDisplayName =
+        displayRaw is String && displayRaw.trim().isNotEmpty
+            ? displayRaw.trim()
+            : null;
+
     final placeSkipGeocoding = map['placeSkipGeocoding'] == true;
 
     final errandItems = _parseErrandItems(map['errandItems']);
@@ -499,6 +545,7 @@ Texto do usuário (interprete a intenção mesmo se estiver mal escrito ou sem p
       dateYmd: dateYmd,
       timeHHMM: timeHHMM,
       placeSearchQuery: placeSearchQuery,
+      placeDisplayName: placeDisplayName,
       placeSkipGeocoding: placeSkipGeocoding,
       errandItems: errandItems,
       iconKey: iconKey,

@@ -578,12 +578,17 @@ class _TaskLocationRowState extends State<_TaskLocationRow> {
     final loc = widget.task.location;
     if (loc == null) return 'Sem localização disponível';
     if (_loading) return 'Buscando localização…';
-    if (_address != null && _address!.isNotEmpty) return _address!;
-    return _formatCoords(loc);
+    if (_address != null && _address!.isNotEmpty) {
+      return TaskLocation.formatAddressLine(
+        location: loc,
+        streetAddress: _address,
+      );
+    }
+    return TaskLocation.formatAddressLine(location: loc);
   }
 
   static String _formatCoords(TaskLocation loc) {
-    return '${loc.lat.toStringAsFixed(4)}, ${loc.lng.toStringAsFixed(4)}';
+    return TaskLocation.formatAddressLine(location: loc);
   }
 
   @override

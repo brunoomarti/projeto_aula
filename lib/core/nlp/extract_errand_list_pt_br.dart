@@ -8,6 +8,8 @@ class ExtractErrandListResult {
     required this.matchedText,
     required this.items,
     this.verb = 'comprar',
+    this.parentTitle,
+    this.isActionList = false,
   });
 
   /// Texto multilinha para [Task.descricao] (marcadores •).
@@ -20,6 +22,12 @@ class ExtractErrandListResult {
 
   /// Verbo principal detectado: comprar, pegar, buscar…
   final String verb;
+
+  /// Título-mãe quando a lista agrupa várias ações (ex.: «Ir na rua»).
+  final String? parentTitle;
+
+  /// Itens são frases de ação, não só produtos.
+  final bool isActionList;
 }
 
 /// Limite do trecho de itens antes de data/hora ou fim.
@@ -30,6 +38,35 @@ const _listStopLookahead =
     r'\s+\d{1,2}(?::\d{2})?\s*(?:h|hs|horas?)\b|'
     r'\s+(?:no|na|nem|em|ao|à)\s+[\p{L}]|'
     r'$)';
+
+/// Limite para listas de ações — permite «no Mercadão», «na Musa» dentro dos itens.
+const _actionListStopLookahead =
+    r'(?=\s+(?:de|da|do)\s+(?:tarde|manha|noite|madrugada|almoco)|'
+    r'\s+(?:hoje|amanha|depois|agora|cedo)|'
+    r'\s+as\s+\d{1,2}|'
+    r'\s+\d{1,2}(?::\d{2})?\s*(?:h|hs|horas?)\b|'
+    r'$)';
+
+const _actionVerbPattern =
+    r'(?:comprar|pegar|buscar|pagar|levantar|levar|retirar|tirar|resolver|fazer|ver|visitar|entregar|mandar|depositar|sacar|consultar|agendar|marcar|passar|trocar|devolver|enviar|receber|adquirir|ir|voltar|encomendar|separar|procurar)';
+
+const _feminineDestinationPrefixes = {
+  'rua',
+  'cidade',
+  'praça',
+  'praca',
+  'avenida',
+  'faculdade',
+  'escola',
+  'farmacia',
+  'loja',
+  'praia',
+  'igreja',
+  'clinica',
+  'sala',
+  'unidade',
+  'feira',
+};
 
 const _itemStopWords = {
   'la',
@@ -81,7 +118,10 @@ bool _isValidItem(String raw) {
 String _cleanItem(String raw) {
   var s = raw.trim();
   s = s.replaceAll(RegExp(r'^[•\-–—]\s*'), '');
-  s = s.replaceAll(RegExp(r'^(?:um|uma|uns|umas)\s+', caseSensitive: false), '');
+  s = s.replaceAll(
+    RegExp(r'^(?:um|uma|uns|umas)\s+', caseSensitive: false),
+    '',
+  );
   s = s.replaceAll(RegExp(r'[.,;]+$'), '').trim();
   return s;
 }
@@ -91,7 +131,10 @@ List<String> _expandItemSegment(String segment) {
   final cleaned = _cleanItem(segment);
   if (cleaned.isEmpty) return const [];
 
-  final words = cleaned.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+  final words = cleaned
+      .split(RegExp(r'\s+'))
+      .where((w) => w.isNotEmpty)
+      .toList();
   if (words.length <= 1) {
     return _isValidItem(cleaned) ? [cleaned] : const [];
   }
@@ -116,6 +159,122 @@ String? extractOriginalErrandChunk(String original) {
   return m?.group(2)?.trim();
 }
 
+bool _startsWithActionVerb(String text) {
+  final low = normPT(text.trim());
+  if (low.isEmpty) return false;
+  return RegExp('^$_actionVerbPattern\\b').hasMatch(low);
+}
+
+bool _looksLikeActionPhrase(String text) {
+  final t = text.trim();
+  if (t.isEmpty) return false;
+  if (_startsWithActionVerb(t)) return true;
+  return t.split(RegExp(r'\s+')).length >= 4;
+}
+
+/// Itens são frases de ação (ex.: «Pagar conta no Mercadão»), não só produtos.
+bool errandItemsLookLikeActions(List<String> items) {
+  if (items.isEmpty) return false;
+  final actionLike = items.where(_looksLikeActionPhrase).length;
+  return actionLike >= 2 || (items.length == 1 && actionLike == 1);
+}
+
+String errandParentTitleFromDestination(String destination) {
+  final d = destination.trim();
+  if (d.isEmpty) return '';
+
+  final firstWord = normPT(d.split(RegExp(r'\s+')).first);
+  final prep = _feminineDestinationPrefixes.contains(firstWord) ? 'na' : 'no';
+  return _capFirst('Ir $prep $d');
+}
+
+List<String> _segmentActionChunk(String s) {
+  final commaParts = s.split(RegExp(r'\s*,\s*'));
+  if (commaParts.length > 1) return commaParts;
+
+  final eSplit = _splitActionSegmentByE(s);
+  if (eSplit.length >= 2) return eSplit;
+
+  final verbSplit = _splitByActionVerbs(s);
+  if (verbSplit.length >= 2) return verbSplit;
+
+  return [s];
+}
+
+List<String> _splitByActionVerbs(String s) {
+  final re = RegExp(r'\b(' + _actionVerbPattern + r')\b', caseSensitive: false);
+  final matches = re.allMatches(s).toList();
+  if (matches.length < 2) return [s];
+
+  final parts = <String>[];
+  for (var i = 0; i < matches.length; i++) {
+    final start = matches[i].start;
+    final end = i + 1 < matches.length ? matches[i + 1].start : s.length;
+    parts.add(s.substring(start, end).trim());
+  }
+  return parts;
+}
+
+List<String> _splitActionSegmentByE(String segment) {
+  final trimmed = segment.trim();
+  if (trimmed.isEmpty) return const [];
+
+  final re = RegExp(
+    r'\s+e\s+(?:' + _actionVerbPattern + r')\b',
+    caseSensitive: false,
+  );
+  if (!re.hasMatch(trimmed)) return [trimmed];
+
+  final items = <String>[];
+  var start = 0;
+  for (final match in re.allMatches(trimmed)) {
+    items.add(
+      trimmed
+          .substring(start, match.start)
+          .trim()
+          .replaceAll(RegExp(r'\s+e\s*$', caseSensitive: false), '')
+          .trim(),
+    );
+    start = match.start + 3;
+  }
+  if (start < trimmed.length) {
+    items.add(trimmed.substring(start).trim());
+  }
+  return items.where((s) => s.isNotEmpty).toList();
+}
+
+bool _isValidActionErrandItem(String raw) {
+  final cleaned = _cleanItem(raw);
+  if (!_isValidItem(cleaned)) return false;
+  return _looksLikeActionPhrase(cleaned);
+}
+
+/// Separa ações completas por vírgula e «e» antes de verbos.
+List<String> parseActionErrandItems(String chunk) {
+  var s = chunk.trim();
+  if (s.isEmpty) return const [];
+
+  s = s.replaceAll(
+    RegExp(
+      r'\s+(?:de|da|do)\s+(?:tarde|manh[aã]|noite|madrugada|almo[cç]o|cedo)\b.*$',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  final items = <String>[];
+  for (final part in _segmentActionChunk(s)) {
+    items.addAll(_splitActionSegmentByE(part));
+  }
+
+  return items
+      .map(_cleanItem)
+      .where(_isValidActionErrandItem)
+      .map(_capFirst)
+      .toList();
+}
+
 /// Separa itens por vírgula, «e» ou palavras soltas (ex.: «mamão banana e açúcar»).
 List<String> parseErrandItems(String chunk) {
   var s = chunk.trim();
@@ -133,7 +292,9 @@ List<String> parseErrandItems(String chunk) {
   s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
 
   final items = <String>[];
-  for (final part in s.split(RegExp(r'\s*[,;]\s*|\s+e\s+', caseSensitive: false))) {
+  for (final part in s.split(
+    RegExp(r'\s*[,;]\s*|\s+e\s+', caseSensitive: false),
+  )) {
     items.addAll(_expandItemSegment(part));
   }
   return items;
@@ -145,12 +306,14 @@ class _ErrandMatch {
     required this.matchedText,
     required this.verb,
     required this.priority,
+    this.destination,
   });
 
   final String itemsChunk;
   final String matchedText;
   final String verb;
   final int priority;
+  final String? destination;
 }
 
 _ErrandMatch? _tryErrandPattern(
@@ -185,7 +348,13 @@ _ErrandMatch? _tryErrandPattern(
 }
 
 /// Recupera o trecho original (com acentos) pelo offset em [low].
-String _sliceOriginal(String original, String low, int start, int end, String fallback) {
+String _sliceOriginal(
+  String original,
+  String low,
+  int start,
+  int end,
+  String fallback,
+) {
   if (start < 0 || end > low.length || start >= end) return fallback;
   // Mesmo comprimento na maioria dos casos após normPT.
   if (original.length == low.length) {
@@ -241,6 +410,28 @@ String errandTitleForPlace(String placeQuery, String verb) {
   };
 }
 
+/// Título exibido quando há lista de afazeres (compras ou ações).
+String resolveErrandDisplayTitle({
+  required String primaryTitle,
+  ExtractPlaceResult? place,
+  ExtractErrandListResult? errand,
+  required List<String> errandItems,
+}) {
+  final trimmed = primaryTitle.trim();
+  if (errandItemsLookLikeActions(errandItems)) {
+    if (errand?.parentTitle != null && errand!.parentTitle!.trim().isNotEmpty) {
+      return errand.parentTitle!.trim();
+    }
+    if (trimmed.isNotEmpty) return trimmed;
+  }
+
+  if (place != null && errand != null && errandItems.isNotEmpty) {
+    return errandTitleForPlace(place.searchQuery, errand.verb);
+  }
+
+  return trimmed;
+}
+
 /// Extrai lista de itens após verbos como «comprar», «pegar», «buscar».
 ///
 /// Com [place], aceita lista com um único item; sem local, exige 2+ itens
@@ -259,71 +450,85 @@ ExtractErrandListResult? extractErrandListPTBR(
     if (m != null) candidates.add(m);
   }
 
+  // «preciso ir na rua para pagar X, comprar Y, buscar Z».
+  add(_tryActionErrandPattern(text, low));
+
   // «fazer compras no X: arroz, feijão» / «compras: a, b e c».
-  add(_tryErrandPattern(
-    text,
-    low,
-    priority: 95,
-    pattern: RegExp(
-      '\\b(?:fazer\\s+)?compras\\s*'
-      '(?:no|na|em|ao|à)?\\s*[^:,-]{0,40}?'
-      '[:\\-–—]\\s*'
-      '([\\p{L}\\p{N}][\\p{L}\\p{N}\\s,;/\\-e]+?)'
-      '$_listStopLookahead',
-      unicode: true,
-      caseSensitive: false,
+  add(
+    _tryErrandPattern(
+      text,
+      low,
+      priority: 95,
+      pattern: RegExp(
+        '\\b(?:fazer\\s+)?compras\\s*'
+        '(?:no|na|em|ao|à)?\\s*[^:,-]{0,40}?'
+        '[:\\-–—]\\s*'
+        '([\\p{L}\\p{N}][\\p{L}\\p{N}\\s,;/\\-e]+?)'
+        '$_listStopLookahead',
+        unicode: true,
+        caseSensitive: false,
+      ),
+      itemsFromMatch: (m) => m.group(1) ?? '',
+      verbFromMatch: (_) => 'comprar',
+      matchedFromMatch: (m) => m.group(0) ?? '',
     ),
-    itemsFromMatch: (m) => m.group(1) ?? '',
-    verbFromMatch: (_) => 'comprar',
-    matchedFromMatch: (m) => m.group(0) ?? '',
-  ));
+  );
 
   // «ir / vou no X comprar a, b e c».
-  add(_tryErrandPattern(
-    text,
-    low,
-    priority: 90,
-    pattern: RegExp(
-      '\\b(?:ir|vou|preciso|tenho\\s+que)\\s+'
-      '(?:no|na|nem|em|ao|à|aos|nas|nos)?\\s*'
-      '[\\p{L}\\p{N}\\s\\-]{0,45}?'
-      '\\s*(comprar|pegar|buscar|levantar)\\s+'
-      '([\\p{L}\\p{N}][\\p{L}\\p{N}\\s,;/\\-e]+?)'
-      '$_listStopLookahead',
-      unicode: true,
-      caseSensitive: false,
+  add(
+    _tryErrandPattern(
+      text,
+      low,
+      priority: 90,
+      pattern: RegExp(
+        '\\b(?:ir|vou|preciso|tenho\\s+que)\\s+'
+        '(?:no|na|nem|em|ao|à|aos|nas|nos)?\\s*'
+        '[\\p{L}\\p{N}\\s\\-]{0,45}?'
+        '\\s*(comprar|pegar|buscar|levantar)\\s+'
+        '([\\p{L}\\p{N}][\\p{L}\\p{N}\\s,;/\\-e]+?)'
+        '$_listStopLookahead',
+        unicode: true,
+        caseSensitive: false,
+      ),
+      itemsFromMatch: (m) => m.group(2) ?? '',
+      verbFromMatch: (m) => normPT(m.group(1) ?? 'comprar'),
+      matchedFromMatch: (m) => m.group(0) ?? '',
     ),
-    itemsFromMatch: (m) => m.group(2) ?? '',
-    verbFromMatch: (m) => normPT(m.group(1) ?? 'comprar'),
-    matchedFromMatch: (m) => m.group(0) ?? '',
-  ));
+  );
 
   // «comprar banana, maçã e mamão» (com ou sem local antes).
-  add(_tryErrandPattern(
-    text,
-    low,
-    priority: 85,
-    pattern: RegExp(
-      '\\b(comprar|pegar|buscar|levantar|adquirir)\\s+'
-      '([\\p{L}\\p{N}][\\p{L}\\p{N}\\s,;/\\-e]+?)'
-      '$_listStopLookahead',
-      unicode: true,
-      caseSensitive: false,
+  add(
+    _tryErrandPattern(
+      text,
+      low,
+      priority: 85,
+      pattern: RegExp(
+        '\\b(comprar|pegar|buscar|levantar|adquirir)\\s+'
+        '([\\p{L}\\p{N}][\\p{L}\\p{N}\\s,;/\\-e]+?)'
+        '$_listStopLookahead',
+        unicode: true,
+        caseSensitive: false,
+      ),
+      itemsFromMatch: (m) => m.group(2) ?? '',
+      verbFromMatch: (m) => normPT(m.group(1) ?? 'comprar'),
+      matchedFromMatch: (m) => m.group(0) ?? '',
     ),
-    itemsFromMatch: (m) => m.group(2) ?? '',
-    verbFromMatch: (m) => normPT(m.group(1) ?? 'comprar'),
-    matchedFromMatch: (m) => m.group(0) ?? '',
-  ));
+  );
 
   if (candidates.isEmpty) return null;
 
   candidates.sort((a, b) => b.priority.compareTo(a.priority));
   final best = candidates.first;
 
-  final originalChunk = extractOriginalErrandChunk(text);
-  final items = originalChunk != null && originalChunk.isNotEmpty
-      ? parseErrandItems(originalChunk)
-      : parseErrandItems(best.itemsChunk);
+  List<String> items;
+  if (best.priority >= 100) {
+    items = parseActionErrandItems(best.itemsChunk);
+  } else {
+    final originalChunk = extractOriginalErrandChunk(text);
+    items = originalChunk != null && originalChunk.isNotEmpty
+        ? parseErrandItems(originalChunk)
+        : parseErrandItems(best.itemsChunk);
+  }
   if (items.isEmpty) return null;
 
   final hasExplicitList =
@@ -331,16 +536,58 @@ ExtractErrandListResult? extractErrandListPTBR(
       RegExp(r'\s+e\s+', caseSensitive: false).hasMatch(best.itemsChunk);
 
   if (place == null) {
-    if (items.length < 2 && !hasExplicitList) return null;
-  } else {
-    if (items.isEmpty) return null;
+    if (items.length < 2 && !hasExplicitList && best.priority < 100) {
+      return null;
+    }
   }
+
+  final isActionList =
+      best.priority >= 100 || errandItemsLookLikeActions(items);
+  final parentTitle = isActionList && best.destination != null
+      ? errandParentTitleFromDestination(best.destination!)
+      : null;
 
   return ExtractErrandListResult(
     description: formatErrandDescription(items),
     matchedText: best.matchedText,
     items: items,
     verb: best.verb,
+    parentTitle: parentTitle,
+    isActionList: isActionList,
+  );
+}
+
+_ErrandMatch? _tryActionErrandPattern(String text, String low) {
+  final m = RegExp(
+    r'\b(?:preciso|tenho\s+que|devo|vou|queria|gostaria\s+de)\s+'
+    r'(?:ir|passar)\s+'
+    r'(?:na|no|nem|em)\s+'
+    r'([\p{L}\p{N}\s\-]+?)'
+    r'\s+para\s+'
+    r'([\p{L}\p{N}][\p{L}\p{N}\s,;/\-]*?)' +
+        _actionListStopLookahead,
+    unicode: true,
+    caseSensitive: false,
+  ).firstMatch(low);
+  if (m == null) return null;
+
+  final destination = m.group(1)?.trim() ?? '';
+  final actionsChunk = m.group(2)?.trim() ?? '';
+  if (destination.isEmpty || actionsChunk.isEmpty) return null;
+
+  final items = parseActionErrandItems(actionsChunk);
+  if (items.length < 2 && !actionsChunk.contains(',')) return null;
+  if (items.isEmpty) return null;
+
+  final matched = m.group(0)?.trim() ?? '';
+  if (matched.isEmpty) return null;
+
+  return _ErrandMatch(
+    itemsChunk: actionsChunk,
+    matchedText: _sliceOriginal(text, low, m.start, m.end, matched),
+    verb: normPT(items.first.split(RegExp(r'\s+')).first),
+    priority: 100,
+    destination: destination,
   );
 }
 
@@ -355,13 +602,26 @@ String stripErrandFromTitle(String title, ExtractErrandListResult errand) {
       t = removePhraseInsensitive(t, item);
     }
   }
-  t = t.replaceAll(
-    RegExp(
-      r'\b(?:comprar|pegar|buscar|levantar|adquirir|fazer\s+compras)\b',
-      caseSensitive: false,
-    ),
-    ' ',
-  );
+  if (!errand.isActionList) {
+    t = t.replaceAll(
+      RegExp(
+        r'\b(?:comprar|pegar|buscar|levantar|adquirir|fazer\s+compras)\b',
+        caseSensitive: false,
+      ),
+      ' ',
+    );
+  } else {
+    t = t.replaceAll(
+      RegExp(
+        r'\b(?:preciso|tenho\s+que|devo|vou|queria|gostaria\s+de|ir|passar)\b',
+        caseSensitive: false,
+      ),
+      ' ',
+    );
+    if (errand.parentTitle != null) {
+      t = removePhraseInsensitive(t, errand.parentTitle!);
+    }
+  }
   t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
   return t;
 }

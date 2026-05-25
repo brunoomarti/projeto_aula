@@ -3,11 +3,7 @@
 library;
 
 class ExtractWhenResult {
-  const ExtractWhenResult({
-    required this.title,
-    this.dateYmd,
-    this.timeHHMM,
-  });
+  const ExtractWhenResult({required this.title, this.dateYmd, this.timeHHMM});
 
   final String title;
   final String? dateYmd;
@@ -16,14 +12,12 @@ class ExtractWhenResult {
 
 String _pad2(int n) => n.toString().padLeft(2, '0');
 
-String _toYMD(DateTime d) =>
-    '${d.year}-${_pad2(d.month)}-${_pad2(d.day)}';
+String _toYMD(DateTime d) => '${d.year}-${_pad2(d.month)}-${_pad2(d.day)}';
 
 DateTime _addDays(DateTime date, int n) =>
     DateTime(date.year, date.month, date.day + n);
 
-int _clamp(int v, int lo, int hi) =>
-    v < lo ? lo : (v > hi ? hi : v);
+int _clamp(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);
 
 /// JS `getDay()`: 0=domingo … 6=sábado.
 int _jsDayOfWeek(DateTime d) => d.weekday % 7;
@@ -39,14 +33,11 @@ String _roundToNext5Min([DateTime? date]) {
 String _capFirst(String s) =>
     s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
-const _accentFrom =
-    'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÇçÌÍÎÏìíîïÙÚÛÜùúûüÿÑñ';
-const _accentTo =
-    'AAAAAAaaaaaaOOOOOOooooooEEEEeeeeCcIIIIiiiiUUUUuuuuyNn';
+const _accentFrom = 'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÇçÌÍÎÏìíîïÙÚÛÜùúûüÿÑñ';
+const _accentTo = 'AAAAAAaaaaaaOOOOOOooooooEEEEeeeeCcIIIIiiiiUUUUuuuuyNn';
 
 final Map<String, String> _accentMap = {
-  for (var i = 0; i < _accentFrom.length; i++)
-    _accentFrom[i]: _accentTo[i],
+  for (var i = 0; i < _accentFrom.length; i++) _accentFrom[i]: _accentTo[i],
 };
 
 String _removeDiacritics(String s) {
@@ -87,9 +78,10 @@ String _removeAccentInsensitive(String haystack, String needle) {
 
 /// Remove [needle] de [haystack] ignorando acentos (limpeza de título).
 String removePhraseInsensitive(String haystack, String needle) =>
-    _removeAccentInsensitive(haystack, needle)
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
+    _removeAccentInsensitive(
+      haystack,
+      needle,
+    ).replaceAll(RegExp(r'\s+'), ' ').trim();
 
 /// Normalização agressiva para PT-BR vindo do ASR.
 String normPT(String text) {
@@ -103,6 +95,8 @@ String normPT(String text) {
       .replaceAll(RegExp(r'\bsabado\b'), 'sabado')
       .replaceAll(RegExp(r'\bmeio\s+dia\b'), 'meio dia')
       .replaceAll(RegExp(r'\bmeia\s+noite\b'), 'meia noite')
+      .replaceAll(RegExp(r'\bpras\b'), 'para as')
+      .replaceAll(RegExp(r'\bpra\b'), 'para')
       .replaceAll(RegExp(r'\bp\/\b'), 'para')
       .replaceAll(RegExp(r'\bpro?\b'), 'para')
       .replaceAll(RegExp(r'[.,;]+'), ' ');
@@ -154,6 +148,14 @@ const _textNum = <String, int>{
   'dez': 10,
   'onze': 11,
   'doze': 12,
+  'treze': 13,
+  'catorze': 14,
+  'quatorze': 14,
+  'quinze': 15,
+  'dezesseis': 16,
+  'dezessete': 17,
+  'dezoito': 18,
+  'dezenove': 19,
 };
 
 const _tens = <String, int>{
@@ -163,6 +165,16 @@ const _tens = <String, int>{
   'quarenta': 40,
   'cinquenta': 50,
 };
+
+const _hourTokenPattern =
+    r'(?:\d{1,2}|uma|um|duas|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)';
+const _spokenNumberTokenPattern =
+    r'(?:\d{1,2}|zero|uma|um|duas|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|catorze|quatorze|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta|quarenta|cinquenta|meia|quarto|hora)';
+const _minuteChunkPattern =
+    '$_spokenNumberTokenPattern(?:\\s+(?:e\\s+)?$_spokenNumberTokenPattern){0,3}';
+const _meridiemPattern = r'(?:manha|tarde|noite|madrugada)';
+const _timePhraseBoundaryPattern =
+    r'(?=\s*(?:$|[,.;:!?)]|hoje\b|amanha\b|depois\b|domingo\b|segunda(?:-feira)?\b|terca(?:-feira)?\b|quarta(?:-feira)?\b|quinta(?:-feira)?\b|sexta(?:-feira)?\b|sabado\b|dia\b|no\b|na\b|nos\b|nas\b|em\b|com\b|para\b|pro\b))';
 
 /// Converte números por extenso simples (até 59).
 int? parsePTNumberUpTo59(Object? chunk) {
@@ -190,6 +202,15 @@ int? parsePTNumberUpTo59(Object? chunk) {
   }
   if (val >= 0 && val <= 59) return val;
   return null;
+}
+
+int? parsePTHourToken(Object? chunk) {
+  final raw = normPT(chunk.toString()).trim();
+  if (raw.isEmpty) return null;
+
+  final parsed = parsePTNumberUpTo59(raw);
+  if (parsed == null || parsed < 0 || parsed > 23) return null;
+  return parsed;
 }
 
 /// Próxima ocorrência de DOW (JS: 0=dom … 6=sáb).
@@ -239,7 +260,8 @@ bool _isValidTimeMatch(String low, RegExpMatch match) {
   if (hh == null) return false;
 
   final fragment = match.group(0) ?? '';
-  final hasExplicitTime = RegExp(r'[:h]').hasMatch(fragment) ||
+  final hasExplicitTime =
+      RegExp(r'[:h]').hasMatch(fragment) ||
       RegExp(r'\b(?:h|hs|horas?)\b').hasMatch(fragment) ||
       RegExp(r'\b(?:as|a|às|à)\s').hasMatch(fragment);
 
@@ -265,8 +287,9 @@ class TimeParseResult {
 DateParseResult? parseExplicitDate(String text, DateTime now) {
   final low = normPT(text);
 
-  var m = RegExp(r'(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?')
-      .firstMatch(low);
+  var m = RegExp(
+    r'(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?',
+  ).firstMatch(low);
   if (m != null) {
     final dd = int.parse(m.group(1)!);
     final mm = int.parse(m.group(2)!);
@@ -319,10 +342,7 @@ DateParseResult? parseRelativeDate(String text, DateTime now) {
     return DateParseResult(date: _addDays(now, 1), match: 'amanha');
   }
   if (RegExp(r'depois\s+de\s+amanha').hasMatch(low)) {
-    return DateParseResult(
-      date: _addDays(now, 2),
-      match: 'depois de amanha',
-    );
+    return DateParseResult(date: _addDays(now, 2), match: 'depois de amanha');
   }
 
   var m = RegExp(
@@ -342,10 +362,7 @@ DateParseResult? parseRelativeDate(String text, DateTime now) {
     final wdKey = m.group(2)!.replaceAll('-feira', '');
     final wd = _weekdays[wdKey] ?? _weekdays[m.group(2)!];
     if (wd != null) {
-      return DateParseResult(
-        date: nextWeekday(now, wd),
-        match: m.group(0)!,
-      );
+      return DateParseResult(date: nextWeekday(now, wd), match: m.group(0)!);
     }
   }
 
@@ -356,13 +373,20 @@ void _applyAmPmContext(String low, int hh, void Function(int) setHh) {
   final isManha = RegExp(r'\bmanha\b').hasMatch(low);
   final isTarde = RegExp(r'\btarde\b').hasMatch(low);
   final isNoite = RegExp(r'\bnoite\b').hasMatch(low);
+  final isMadrugada = RegExp(r'\bmadrugada\b').hasMatch(low);
   final isPM = RegExp(r'\bpm\b').hasMatch(low);
   final isAM = RegExp(r'\bam\b').hasMatch(low);
 
   if (hh <= 12) {
-    if (isTarde || isNoite || isPM) {
+    if (isTarde || isPM) {
       if (hh != 12) setHh(hh + 12);
-    } else if (isManha || isAM) {
+    } else if (isNoite) {
+      if (hh == 12) {
+        setHh(0);
+      } else {
+        setHh(hh + 12);
+      }
+    } else if (isManha || isAM || isMadrugada) {
       if (hh == 12) setHh(0);
     }
   }
@@ -380,8 +404,7 @@ TimeParseResult? inferTimeByContext(String text, [DateTime? now]) {
   if ((m = RegExp(r'(final|fim)\s+da?\s+tarde').firstMatch(low)) != null) {
     return TimeParseResult(time: '17:30', match: m!.group(0)!);
   }
-  if ((m = RegExp(r'\bnoite\b|de\s+noite|a\s+noite').firstMatch(low)) !=
-      null) {
+  if ((m = RegExp(r'\bnoite\b|de\s+noite|a\s+noite').firstMatch(low)) != null) {
     return TimeParseResult(time: '23:59', match: m!.group(0)!);
   }
   if ((m = RegExp(r'\btarde\b').firstMatch(low)) != null) {
@@ -416,6 +439,164 @@ TimeParseResult? inferTimeByContext(String text, [DateTime? now]) {
   return null;
 }
 
+TimeParseResult? _parseSpokenCountdownTime(String low) {
+  final m = RegExp(
+    r'(?:\bfaltando\s+)?('
+    '$_minuteChunkPattern'
+    r')\s+para(?:\s+as?)?\s+('
+    '$_hourTokenPattern'
+    r')(?:\s+(?:da|de|pela)\s+('
+    '$_meridiemPattern'
+    r'))?'
+    '$_timePhraseBoundaryPattern',
+    caseSensitive: false,
+  ).firstMatch(low);
+  if (m == null || _isDayOfMonthContext(low, m.start)) {
+    return null;
+  }
+
+  final delta = parsePTNumberUpTo59(m.group(1));
+  final targetHour = parsePTHourToken(m.group(2));
+  if (delta == null || delta <= 0 || delta >= 60 || targetHour == null) {
+    return null;
+  }
+
+  var hh = targetHour;
+  _applyAmPmContext(m.group(0)!, hh, (v) => hh = v);
+
+  var totalMinutes = hh * 60 - delta;
+  while (totalMinutes < 0) {
+    totalMinutes += 24 * 60;
+  }
+
+  final resolvedHour = (totalMinutes ~/ 60) % 24;
+  final resolvedMinute = totalMinutes % 60;
+  return TimeParseResult(
+    time: '${_pad2(resolvedHour)}:${_pad2(resolvedMinute)}',
+    match: m.group(0)!.trim(),
+  );
+}
+
+TimeParseResult? _parseSpokenMinusTime(String low) {
+  final m = RegExp(
+    r'(?:\b(?:as|a|às|à)\s*)?('
+    '$_hourTokenPattern'
+    r')\s+menos\s+('
+    '$_minuteChunkPattern'
+    r')(?:\s+(?:da|de|pela)\s+('
+    '$_meridiemPattern'
+    r'))?'
+    '$_timePhraseBoundaryPattern',
+    caseSensitive: false,
+  ).firstMatch(low);
+  if (m == null || _isDayOfMonthContext(low, m.start)) {
+    return null;
+  }
+
+  final targetHour = parsePTHourToken(m.group(1));
+  final delta = parsePTNumberUpTo59(m.group(2));
+  if (delta == null || delta <= 0 || delta >= 60 || targetHour == null) {
+    return null;
+  }
+
+  var hh = targetHour;
+  _applyAmPmContext(m.group(0)!, hh, (v) => hh = v);
+
+  var totalMinutes = hh * 60 - delta;
+  while (totalMinutes < 0) {
+    totalMinutes += 24 * 60;
+  }
+
+  final resolvedHour = (totalMinutes ~/ 60) % 24;
+  final resolvedMinute = totalMinutes % 60;
+  return TimeParseResult(
+    time: '${_pad2(resolvedHour)}:${_pad2(resolvedMinute)}',
+    match: m.group(0)!.trim(),
+  );
+}
+
+TimeParseResult? _parseColloquialMeridiemTime(String low) {
+  final m = RegExp(
+    r'(?:\b(?:as|a|às|à)\s*)?'
+    r'(\d{1,2}|uma|um|duas|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)'
+    r'(?:\s+e\s+([a-z0-9\s]+?))?'
+    r'\s+(?:da|de)\s+(manha|tarde|noite)\b',
+    caseSensitive: false,
+  ).firstMatch(low);
+  if (m == null || _isDayOfMonthContext(low, m.start)) {
+    return null;
+  }
+
+  final parsedHour = parsePTHourToken(m.group(1));
+  if (parsedHour == null) return null;
+  var hh = parsedHour;
+
+  var mm = 0;
+  final minsRaw = m.group(2)?.trim();
+  if (minsRaw != null && minsRaw.isNotEmpty) {
+    final parsedMin = parsePTNumberUpTo59(minsRaw);
+    if (parsedMin == null) return null;
+    mm = parsedMin;
+  }
+
+  _applyAmPmContext(m.group(0)!, hh, (v) => hh = v);
+
+  hh = _clamp(hh, 0, 23);
+  mm = _clamp(mm, 0, 59);
+  return TimeParseResult(time: '${_pad2(hh)}:${_pad2(mm)}', match: m.group(0)!);
+}
+
+TimeParseResult? _parseSpokenAbsoluteTime(String low) {
+  final m = RegExp(
+    r'(?:\b(as|a|às|à)\s*)?('
+    '$_hourTokenPattern'
+    r')(?:\s+e\s+('
+    '$_minuteChunkPattern'
+    r'))?(?:\s+(?:da|de|pela)\s+('
+    '$_meridiemPattern'
+    r'))?'
+    '$_timePhraseBoundaryPattern',
+    caseSensitive: false,
+  ).firstMatch(low);
+  if (m == null || _isDayOfMonthContext(low, m.start)) {
+    return null;
+  }
+
+  if (m.end < low.length) {
+    final nextChar = low[m.end];
+    if (nextChar == ':' || nextChar == 'h') {
+      return null;
+    }
+  }
+
+  final hasIntroducer = m.group(1) != null;
+  final parsedHour = parsePTHourToken(m.group(2));
+  if (parsedHour == null) return null;
+
+  final minsRaw = m.group(3)?.trim();
+  final hasMeridiem = m.group(4) != null;
+  if (!hasIntroducer && minsRaw == null && !hasMeridiem) {
+    return null;
+  }
+
+  var hh = parsedHour;
+  var mm = 0;
+  if (minsRaw != null && minsRaw.isNotEmpty) {
+    final parsedMin = parsePTNumberUpTo59(minsRaw);
+    if (parsedMin == null) return null;
+    mm = parsedMin;
+  }
+
+  _applyAmPmContext(m.group(0)!, hh, (v) => hh = v);
+
+  hh = _clamp(hh, 0, 23);
+  mm = _clamp(mm, 0, 59);
+  return TimeParseResult(
+    time: '${_pad2(hh)}:${_pad2(mm)}',
+    match: m.group(0)!.trim(),
+  );
+}
+
 /// Horas: prioriza "X horas"/"Xh" antes de "hh:mm".
 TimeParseResult? parseTime(String text) {
   final low = normPT(text);
@@ -425,21 +606,27 @@ TimeParseResult? parseTime(String text) {
       r'(?:\b(?:ao|a|as|às)\s+)?meia\s+noite\b',
       caseSensitive: false,
     ).firstMatch(low);
-    return TimeParseResult(
-      time: '00:00',
-      match: m?.group(0) ?? 'meia noite',
-    );
+    return TimeParseResult(time: '00:00', match: m?.group(0) ?? 'meia noite');
   }
   if (RegExp(r'meio[-\s]?dia').hasMatch(low)) {
     final m = RegExp(
       r'(?:\b(?:ao|a|as|às)\s+)?meio\s+dia\b',
       caseSensitive: false,
     ).firstMatch(low);
-    return TimeParseResult(
-      time: '12:00',
-      match: m?.group(0) ?? 'meio dia',
-    );
+    return TimeParseResult(time: '12:00', match: m?.group(0) ?? 'meio dia');
   }
+
+  final countdown = _parseSpokenCountdownTime(low);
+  if (countdown != null) return countdown;
+
+  final minus = _parseSpokenMinusTime(low);
+  if (minus != null) return minus;
+
+  final colloquial = _parseColloquialMeridiemTime(low);
+  if (colloquial != null) return colloquial;
+
+  final spokenAbsolute = _parseSpokenAbsoluteTime(low);
+  if (spokenAbsolute != null) return spokenAbsolute;
 
   var m = RegExp(
     r'(?:\b(as|a)\s*)?(\d{1,2})\s*(?:h|hs|horas?)\s*(?:e\s*([a-z0-9\s]+))?',
@@ -482,7 +669,15 @@ TimeParseResult? parseTime(String text) {
       final w = RegExp(r'^\s*e\s*([a-z0-9\s]+)').firstMatch(after);
       if (w != null) {
         final parsedMin = parsePTNumberUpTo59(w.group(1));
-        if (parsedMin != null) mm = parsedMin;
+        if (parsedMin != null) {
+          mm = parsedMin;
+          m =
+              RegExp(
+                r'(?:\b(as|a)\s*)?(\d{1,2})(?:[:h](\d{2}))?\s*e\s*([a-z0-9\s]+)',
+                caseSensitive: false,
+              ).firstMatch(low) ??
+              m;
+        }
       }
     }
 
@@ -500,9 +695,71 @@ TimeParseResult? parseTime(String text) {
   return null;
 }
 
+String stripSpokenTimePhrasesPT(String s) {
+  if (s.isEmpty) return s;
+
+  var t = ' ${normPT(s)} ';
+  t = t.replaceAll(
+    RegExp(
+      r'\b(?:ao|a|as|às)\s+(?:meio[-\s]dia|meia[-\s]noite)\b',
+      caseSensitive: false,
+    ),
+    ' ',
+  );
+  t = t.replaceAll(
+    RegExp(r'\b(?:meio[-\s]dia|meia[-\s]noite)\b', caseSensitive: false),
+    ' ',
+  );
+  t = t.replaceAll(
+    RegExp(
+      r'(?:\bfaltando\s+)?('
+      '$_minuteChunkPattern'
+      r')\s+para(?:\s+as?)?\s+('
+      '$_hourTokenPattern'
+      r')(?:\s+(?:da|de|pela)\s+('
+      '$_meridiemPattern'
+      r'))?'
+      '$_timePhraseBoundaryPattern',
+      caseSensitive: false,
+    ),
+    ' ',
+  );
+  t = t.replaceAll(
+    RegExp(
+      r'(?:\b(?:as|a|às|à)\s*)?('
+      '$_hourTokenPattern'
+      r')\s+menos\s+('
+      '$_minuteChunkPattern'
+      r')(?:\s+(?:da|de|pela)\s+('
+      '$_meridiemPattern'
+      r'))?'
+      '$_timePhraseBoundaryPattern',
+      caseSensitive: false,
+    ),
+    ' ',
+  );
+  t = t.replaceAll(
+    RegExp(
+      r'(?:\b(as|a|às|à)\s*)?('
+      '$_hourTokenPattern'
+      r')(?:\s+e\s+('
+      '$_minuteChunkPattern'
+      r'))?(?:\s+(?:da|de|pela)\s+('
+      '$_meridiemPattern'
+      r'))?'
+      '$_timePhraseBoundaryPattern',
+      caseSensitive: false,
+    ),
+    ' ',
+  );
+
+  t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return t;
+}
+
 bool _isTemporalWord(String w) => RegExp(
-      r'^(hoje|amanha|depois|agora|cedo|tarde|noite|manha|madrugada|almoco)$',
-    ).hasMatch(w);
+  r'^(hoje|amanha|depois|agora|cedo|tarde|noite|manha|madrugada|almoco)$',
+).hasMatch(w);
 
 /// Limpador de título semântico (versão robusta).
 String cleanTitlePT(
@@ -590,8 +847,7 @@ String smartTitleRepairPT([String raw = '']) {
 
   const fillersBeg =
       r'^(tipo|assim|entao|então|olha|veja|bom|ah|eh|é|aham|ai|aí|cara|mano|meu|minha|sei la|sei lá|entao tá|então tá|por favor,?)\b[\s,]*';
-  const fillersEnd =
-      r'[\s,]*(tipo|assim|né|tá|tá bom|tá bom\?|por favor)\s*$';
+  const fillersEnd = r'[\s,]*(tipo|assim|né|tá|tá bom|tá bom\?|por favor)\s*$';
 
   t = t
       .replaceAll(RegExp(fillersBeg, caseSensitive: false), '')
@@ -745,7 +1001,10 @@ String smartTitleRepairPT([String raw = '']) {
   t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
 
   t = t
-      .replaceAll(RegExp(r'(\b\d{1,2})\s+oras?\b', caseSensitive: false), r'$1 horas')
+      .replaceAll(
+        RegExp(r'(\b\d{1,2})\s+oras?\b', caseSensitive: false),
+        r'$1 horas',
+      )
       .replaceAll(
         RegExp(
           r'\b(as|às|a|da|de)\s+(\d{1,2})\s+oras?\b',
@@ -765,10 +1024,7 @@ String smartTitleRepairPT([String raw = '']) {
         r'hora$1',
       )
       .replaceAll(
-        RegExp(
-          r'(?<=\b(?:as|às|a|da|de)\s)\bora(s?)\b',
-          caseSensitive: false,
-        ),
+        RegExp(r'(?<=\b(?:as|às|a|da|de)\s)\bora(s?)\b', caseSensitive: false),
         r'hora$1',
       );
 
@@ -792,7 +1048,10 @@ String smartTitleRepairPT([String raw = '']) {
 
   t = t
       .replaceAll(
-        RegExp(r'\b(?:de|da|do|para|pra|p\/|em|no|na)\s*$', caseSensitive: false),
+        RegExp(
+          r'\b(?:de|da|do|para|pra|p\/|em|no|na)\s*$',
+          caseSensitive: false,
+        ),
         '',
       )
       .trim();
@@ -822,9 +1081,10 @@ String finalizeTitlePT([String raw = '']) {
 
   t = t.replaceAll(RegExp(r'^e\s+', caseSensitive: false), '').trim();
 
-  final mLembrar =
-      RegExp(r'^(?:me\s+)?lembra\w*\s+(?:de\s+)(.+)$', caseSensitive: false)
-          .firstMatch(t);
+  final mLembrar = RegExp(
+    r'^(?:me\s+)?lembra\w*\s+(?:de\s+)(.+)$',
+    caseSensitive: false,
+  ).firstMatch(t);
   if (mLembrar != null && mLembrar.group(1) != null) {
     t = mLembrar.group(1)!.trim();
   }
@@ -946,6 +1206,8 @@ ExtractWhenResult extractWhenPTBR(String transcript, [DateTime? now]) {
   }
 
   titleSource = titleSource.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  titleSource = stripSpokenTimePhrasesPT(titleSource);
 
   titleSource = stripTemporalResidualPT(titleSource);
 

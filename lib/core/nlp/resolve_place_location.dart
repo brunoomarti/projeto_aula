@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'dart:math' as math;
 
 import '../../features/tasks/domain/address_suggestion.dart';
@@ -48,6 +50,9 @@ double _toRad(double deg) => deg * math.pi / 180.0;
 
 String _norm(String s) => s.toLowerCase().trim();
 
+const _kDefaultNearbyBiasMeters = 50000.0;
+const _kStrongNearbyBiasMeters = 15000.0;
+
 List<String> _aliasesForQuery(String query) {
   final low = _norm(query);
   final out = <String>[low];
@@ -59,10 +64,47 @@ List<String> _aliasesForQuery(String query) {
   return out.toSet().toList();
 }
 
+@visibleForTesting
+List<({double radiusMeters, bool restrictToNear})> preferredNearbySearchStepsForPlace(
+  ExtractPlaceResult place, {
+  TaskLocation? near,
+}) {
+  if (near == null) {
+    return const [
+      (radiusMeters: _kDefaultNearbyBiasMeters, restrictToNear: false),
+    ];
+  }
+
+  // Se o usuário não especificou cidade/campus/unidade, prioriza fortemente
+  // resultados da região antes de ampliar o raio ou afrouxar a busca.
+  if (place.qualifiers.isEmpty) {
+    return const [
+      (radiusMeters: _kStrongNearbyBiasMeters, restrictToNear: true),
+      (radiusMeters: _kDefaultNearbyBiasMeters, restrictToNear: true),
+      (radiusMeters: _kDefaultNearbyBiasMeters, restrictToNear: false),
+    ];
+  }
+
+  return const [
+    (radiusMeters: _kDefaultNearbyBiasMeters, restrictToNear: false),
+  ];
+}
+
+String _compactQueryToken(String text) =>
+    _norm(text).replaceAll(RegExp(r'[^a-z0-9]+'), '');
+
 /// Queries alternativas para melhorar resultados OSM.
 List<String> geocodeQueriesForPlace(ExtractPlaceResult place) {
   final queries = <String>[place.searchQuery.trim()];
   final low = _norm(place.searchQuery);
+  final compactQuery = place.searchQuery
+      .replaceAll(RegExp(r'[\s\-_]+'), '')
+      .trim();
+
+  if (compactQuery.length >= 4 &&
+      RegExp(r'[\s\-_]+').hasMatch(place.searchQuery)) {
+    queries.add(compactQuery);
+  }
 
   for (final entry in _kInstitutionAliases.entries) {
     if (low.contains(entry.key)) {
@@ -89,9 +131,15 @@ List<String> geocodeQueriesForPlace(ExtractPlaceResult place) {
 /// Verifica se o resultado da busca corresponde ao local pedido.
 bool textMatchesPlace(AddressSuggestion suggestion, ExtractPlaceResult place) {
   final label = _norm('${suggestion.shortLabel} ${suggestion.displayName}');
+  final compactLabel = _compactQueryToken(label);
 
   for (final alias in _aliasesForQuery(place.searchQuery)) {
-    if (alias.length >= 3 && label.contains(_norm(alias))) {
+    final normalizedAlias = _norm(alias);
+    final compactAlias = _compactQueryToken(alias);
+    if (normalizedAlias.length >= 3 && label.contains(normalizedAlias)) {
+      return true;
+    }
+    if (compactAlias.length >= 4 && compactLabel.contains(compactAlias)) {
       return true;
     }
   }
@@ -113,10 +161,16 @@ double scorePlaceSuggestion(
 ) {
   final label = _norm('${suggestion.shortLabel} ${suggestion.displayName}');
   final query = _norm(place.searchQuery);
+  final compactLabel = _compactQueryToken(label);
+  final compactQuery = _compactQueryToken(query);
   var score = 0.0;
 
   if (textMatchesPlace(suggestion, place)) {
     score += 30.0;
+  }
+
+  if (compactQuery.length >= 4 && compactLabel.contains(compactQuery)) {
+    score += 24.0;
   }
 
   final queryTokens = query
@@ -229,16 +283,31 @@ Future<List<AddressSuggestion>> _searchAllQueries(
 }) async {
   final seen = <String>{};
   final merged = <AddressSuggestion>[];
+  final searchSteps = preferredNearbySearchStepsForPlace(place, near: near);
 
-  for (final raw in geocodeQueriesForPlace(place)) {
-    final q = _enhanceGeocodeQuery(raw);
-    final results = await GeocodeService.searchAddresses(q, near: near);
-    for (final item in results) {
-      if (!item.hasCoordinates) continue;
-      final key = item.placeId ??
-          '${item.location.lat.toStringAsFixed(4)}|${item.location.lng.toStringAsFixed(4)}';
-      if (seen.add(key)) merged.add(item);
+  for (final step in searchSteps) {
+    var foundGoodLocalMatch = false;
+
+    for (final raw in geocodeQueriesForPlace(place)) {
+      final q = _enhanceGeocodeQuery(raw);
+      final results = await GeocodeService.searchAddresses(
+        q,
+        near: near,
+        biasRadiusMeters: step.radiusMeters,
+        restrictToNear: step.restrictToNear,
+      );
+      for (final item in results) {
+        if (!item.hasCoordinates) continue;
+        final key = item.placeId ??
+            '${item.location.lat.toStringAsFixed(4)}|${item.location.lng.toStringAsFixed(4)}';
+        if (seen.add(key)) merged.add(item);
+        if (step.restrictToNear && textMatchesPlace(item, place)) {
+          foundGoodLocalMatch = true;
+        }
+      }
     }
+
+    if (foundGoodLocalMatch) return merged;
   }
 
   return merged;
@@ -257,8 +326,16 @@ Future<ResolvedPlace?> resolvePlaceLocation(
   final resolved = await GeocodeService.resolveSuggestion(best);
   if (resolved == null || !resolved.hasCoordinates) return null;
 
+  final placeName = resolved.location.name ??
+      resolved.establishmentName ??
+      formatPlaceDisplayName(place);
+
   return ResolvedPlace(
-    location: resolved.location,
+    location: TaskLocation(
+      lat: resolved.location.lat,
+      lng: resolved.location.lng,
+      name: placeName,
+    ),
     label: resolved.shortLabel.isNotEmpty
         ? resolved.shortLabel
         : resolved.displayName,

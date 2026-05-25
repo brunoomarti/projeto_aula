@@ -87,6 +87,8 @@ class GeocodeService {
   static Future<List<AddressSuggestion>> searchAddresses(
     String query, {
     TaskLocation? near,
+    double? biasRadiusMeters,
+    bool restrictToNear = false,
   }) async {
     if (!EnvConfig.isGoogleConfigured) return [];
 
@@ -99,6 +101,8 @@ class GeocodeService {
       q,
       near: near,
       includeEstablishments: true,
+      biasRadiusMeters: biasRadiusMeters,
+      restrictToNear: restrictToNear,
     );
     if (predictions.isEmpty) return [];
 
@@ -139,6 +143,8 @@ class GeocodeService {
     String input, {
     TaskLocation? near,
     bool includeEstablishments = true,
+    double? biasRadiusMeters,
+    bool restrictToNear = false,
   }) async {
     final body = <String, dynamic>{
       'input': input,
@@ -160,15 +166,20 @@ class GeocodeService {
     }
 
     if (near != null) {
-      body['locationBias'] = {
+      final locationArea = {
         'circle': {
           'center': {
             'latitude': near.lat,
             'longitude': near.lng,
           },
-          'radius': 50000.0,
+          'radius': biasRadiusMeters ?? 50000.0,
         },
       };
+      if (restrictToNear) {
+        body['locationRestriction'] = locationArea;
+      } else {
+        body['locationBias'] = locationArea;
+      }
     }
 
     final uri = Uri.https('places.googleapis.com', '/v1/places:autocomplete');

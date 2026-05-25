@@ -53,9 +53,6 @@ class _SwipeableTaskCardState extends State<SwipeableTaskCard>
   @override
   void initState() {
     super.initState();
-    _x.addListener(() {
-      if (mounted) setState(() {});
-    });
   }
 
   @override
@@ -83,12 +80,6 @@ class _SwipeableTaskCardState extends State<SwipeableTaskCard>
   }
 
   double get _offset => _x.value.clamp(-_dragMaxX, _dragMaxX);
-
-  double get _progressRight =>
-      (_offset / _swipeLockX).clamp(0.0, 1.0);
-
-  double get _progressLeft =>
-      (-_offset / -_swipeLockLeft).clamp(0.0, 1.0);
 
   void _snapTo(double target, {double velocity = 0}) {
     _x.stop();
@@ -181,83 +172,90 @@ class _SwipeableTaskCardState extends State<SwipeableTaskCard>
     widget.onOpenDetails();
   }
 
-  /// Lixeira: visível durante o arrasto mesmo em tarefas concluídas.
-  bool get _showDeleteLayer =>
-      !widget.task.done ||
-      widget.isOpen ||
-      _dragging ||
-      _progressRight > 0;
-
-  /// Concluir: só para tarefas pendentes.
-  bool get _showCompleteLayer => !widget.task.done;
-
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cardHeight = constraints.maxHeight.isFinite
-            ? constraints.maxHeight
-            : 110.0;
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _x,
+        builder: (context, child) {
+          final offset = _offset;
+          final progressRight = (offset / _swipeLockX).clamp(0.0, 1.0);
+          final progressLeft = (-offset / -_swipeLockLeft).clamp(0.0, 1.0);
+          final showDeleteLayer = !widget.task.done ||
+              widget.isOpen ||
+              _dragging ||
+              progressRight > 0;
+          final showCompleteLayer = !widget.task.done;
 
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            if (_showDeleteLayer)
-              Positioned.fill(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: _SwipeActionButton(
-                    progress: _progressRight,
-                    color: const Color(0xFFE15E5B),
-                    icon: Icons.delete_outline,
-                    iconColor: Colors.white,
-                    cardHeight: cardHeight,
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final cardHeight = constraints.maxHeight.isFinite
+                  ? constraints.maxHeight
+                  : 110.0;
+
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  if (showDeleteLayer)
+                    Positioned.fill(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: _SwipeActionButton(
+                          progress: progressRight,
+                          color: const Color(0xFFE15E5B),
+                          icon: Icons.delete_outline,
+                          iconColor: Colors.white,
+                          cardHeight: cardHeight,
+                        ),
+                      ),
+                    ),
+                  if (showCompleteLayer)
+                    Positioned.fill(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: _SwipeActionButton(
+                          progress: progressLeft,
+                          color: TaskCardTokens.doneAccent,
+                          icon: Icons.check,
+                          iconColor: Colors.white,
+                          cardHeight: cardHeight,
+                        ),
+                      ),
+                    ),
+                  Transform.translate(
+                    offset: Offset(offset, 0),
+                    child: child,
                   ),
-                ),
-              ),
-            if (_showCompleteLayer)
-              Positioned.fill(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: _SwipeActionButton(
-                    progress: _progressLeft,
-                    color: TaskCardTokens.doneAccent,
-                    icon: Icons.check,
-                    iconColor: Colors.white,
-                    cardHeight: cardHeight,
-                  ),
-                ),
-              ),
-            Transform.translate(
-              offset: Offset(_offset, 0),
-              child: GestureDetector(
-                onHorizontalDragStart: _onDragStart,
-                onHorizontalDragUpdate: _onDragUpdate,
-                onHorizontalDragEnd: _onDragEnd,
-                onTapDown: (_) => setState(() => _pressed = true),
-                onTapUp: (_) => setState(() => _pressed = false),
-                onTapCancel: () => setState(() => _pressed = false),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
-                  decoration: BoxDecoration(
-                    borderRadius:
-                        BorderRadius.circular(TaskCardTokens.borderRadius),
-                    color: _pressed
-                        ? const Color(0xFFECECEC)
-                        : Colors.transparent,
-                  ),
-                  child: TaskCard(
-                    task: widget.task,
-                    onOpenDetails: _handleOpenDetails,
-                    onToggleDone: widget.onToggleDone,
-                    showCompletionFlash: widget.showCompletionFlash,
-                  ),
-                ),
-              ),
+                ],
+              );
+            },
+          );
+        },
+        child: GestureDetector(
+          onHorizontalDragStart: _onDragStart,
+          onHorizontalDragUpdate: _onDragUpdate,
+          onHorizontalDragEnd: _onDragEnd,
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            decoration: BoxDecoration(
+              borderRadius:
+                  BorderRadius.circular(TaskCardTokens.borderRadius),
+              color: _pressed
+                  ? const Color(0xFFECECEC)
+                  : Colors.transparent,
             ),
-          ],
-        );
-      },
+            child: TaskCard(
+              task: widget.task,
+              onOpenDetails: _handleOpenDetails,
+              onToggleDone: widget.onToggleDone,
+              showCompletionFlash: widget.showCompletionFlash,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

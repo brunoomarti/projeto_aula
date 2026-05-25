@@ -96,7 +96,6 @@ void main() {
 
   group('pickBestPlaceSuggestion', () {
     final nearColatina = TaskLocation(lat: -19.539, lng: -40.630);
-    final nearItapina = TaskLocation(lat: -20.385, lng: -40.308);
 
     AddressSuggestion ifesColatina() => AddressSuggestion(
           displayName: 'IFES Campus Colatina, Colatina, ES',
@@ -137,6 +136,96 @@ void main() {
         nearColatina,
       );
       expect(best?.shortLabel.toLowerCase(), contains('itapina'));
+    });
+
+    test('busca nearby usa restrição primeiro quando ha nearby', () {
+      final place = ExtractPlaceResult(
+        searchQuery: 'Detran',
+        matchedText: 'no detran',
+      );
+      expect(
+        preferredNearbySearchStepsForPlace(place, near: nearColatina),
+        [
+          (radiusMeters: 15000.0, restrictToNear: true),
+          (radiusMeters: 50000.0, restrictToNear: true),
+          (radiusMeters: 50000.0, restrictToNear: false),
+        ],
+      );
+    });
+
+    test('geocodeQueriesForPlace inclui variação junta de marca', () {
+      final place = ExtractPlaceResult(
+        searchQuery: 'Extra Bom',
+        matchedText: 'no extra bom',
+      );
+      final queries = geocodeQueriesForPlace(place);
+      expect(queries, contains('ExtraBom'));
+    });
+
+    test('textMatchesPlace reconhece extra bom e extrabom', () {
+      final place = ExtractPlaceResult(
+        searchQuery: 'Extra Bom',
+        matchedText: 'no extra bom',
+      );
+      final suggestion = AddressSuggestion(
+        displayName: 'Extrabom Colatina, Colatina, ES',
+        shortLabel: 'Extrabom Colatina',
+        location: nearColatina,
+        categoryLabel: 'Supermercado',
+      );
+      expect(textMatchesPlace(suggestion, place), isTrue);
+    });
+  });
+
+  group('place display and title enrichment', () {
+    test('formatPlaceDisplayName remove preposição', () {
+      final p = extractPlacePTBR(
+        'levar gata no ama hospital vetrinario as 14h',
+      )!;
+      expect(
+        formatPlaceDisplayName(p).toLowerCase(),
+        contains('ama'),
+      );
+      expect(
+        formatPlaceDisplayName(p).toLowerCase(),
+        contains('hospital'),
+      );
+    });
+
+    test('enrichTitleWithPlaceDestination adiciona veterinário', () {
+      final p = extractPlacePTBR(
+        'levar gata no ama hospital vetrinario as 14h',
+      )!;
+      final enriched = enrichTitleWithPlaceDestination(
+        title: 'Levar gata',
+        placeQuery: p.searchQuery,
+      );
+      expect(enriched.toLowerCase(), contains('veterin'));
+    });
+
+    test('enrichTitleWithTranscriptContext entende detran e carteira', () {
+      final enriched = enrichTitleWithTranscriptContext(
+        title: 'Carteira',
+        transcript: 'ir no detran renovar a carteira',
+        placeQuery: 'Detran',
+      );
+      expect(enriched.toLowerCase(), contains('renovar'));
+      expect(enriched.toLowerCase(), contains('motorista'));
+    });
+
+    test('TaskLocation.formatAddressLine combina nome e endereço', () {
+      const loc = TaskLocation(
+        lat: -20.0,
+        lng: -40.0,
+        name: 'Ama Hospital Veterinário',
+      );
+      expect(
+        TaskLocation.formatAddressLine(
+          location: loc,
+          streetAddress: 'Rua das Flores, 100',
+        ),
+        'Ama Hospital Veterinário · Rua das Flores, 100',
+      );
     });
   });
 }

@@ -33,6 +33,8 @@ const _kIconTieBreakOrder = [
   'pets',
   'beauty',
   'clothing',
+  'swimming',
+  'ball_sports',
   'gym',
   'faith',
   'study',
@@ -54,6 +56,8 @@ const _kIconTieBreakOrder = [
 const _kIconColorIndices = <String, List<int>>{
   'home': [0, 11],
   'gym': [1, 2],
+  'ball_sports': [10, 5, 1],
+  'swimming': [8, 5, 10],
   'market': [1, 2, 3],
   'shopping': [1, 2, 3],
   'food': [3, 6, 9],
@@ -87,6 +91,12 @@ const _kRules = <_IconRule>[
   _IconRule(iconKey: 'gym', pattern: r'\b(treino|treinar|malhar|exercicio|exercicios|halter|halteres)\b', weight: 2),
   _IconRule(iconKey: 'gym', pattern: r'\b(alongamento|funcional|spinning|bike\s+ergometrica)\b', weight: 2),
 
+  // Esportes com bola
+  _IconRule(iconKey: 'ball_sports', pattern: r'\b(futebol|futsal|soccer|pelada|rachao|rachão|partida\s+de\s+futebol)\b', weight: 4),
+  _IconRule(iconKey: 'ball_sports', pattern: r'\b(basquete|basket|basketball|volei|vôlei|handebol|handball)\b', weight: 4),
+  _IconRule(iconKey: 'ball_sports', pattern: r'\b(tenis|tênis|beach\s+tennis|pingue\s+pongue|ping\s*pong|tenis\s+de\s+mesa)\b', weight: 3),
+  _IconRule(iconKey: 'ball_sports', pattern: r'\b(jogo\s+de\s+bola|esporte\s+com\s+bola|bater\s+bola|treino\s+de\s+(?:futebol|basquete|volei|vôlei|handebol|tenis|tênis))\b', weight: 4),
+
   // Shopping / compras gerais
   _IconRule(iconKey: 'shopping', pattern: r'\b(shopping|shoppings|mall|centro comercial|centro\s+de\s+compras)\b', weight: 3),
   _IconRule(iconKey: 'shopping', pattern: r'\b(ir\s+(?:ao|no|na|pro|pra|em)|passar\s+(?:no|na|pelo))\s+shopping\b', weight: 3),
@@ -117,7 +127,7 @@ const _kRules = <_IconRule>[
 
   // Caminhada / passeio
   _IconRule(iconKey: 'walk', pattern: r'\b(caminhada|caminhar|passeio|passear|andar\s+no\s+parque)\b', weight: 3),
-  _IconRule(iconKey: 'walk', pattern: r'\b(trilha|hiking|correr|corrida|jogging|jogar\s+bola)\b', weight: 2),
+  _IconRule(iconKey: 'walk', pattern: r'\b(trilha|hiking|correr|corrida|jogging)\b', weight: 2),
 
   // Trabalho
   _IconRule(iconKey: 'work', pattern: r'\b(trabalho|escritorio|office|cliente|projeto|deadline)\b', weight: 3),
@@ -128,7 +138,10 @@ const _kRules = <_IconRule>[
   // Estudo
   _IconRule(iconKey: 'study', pattern: r'\b(estudar|estudo|prova|faculdade|universidade|escola|aula)\b', weight: 3),
   _IconRule(iconKey: 'study', pattern: r'\b(curso|ingles|inglês|concurso|redacao|redação|tcc|monografia)\b', weight: 3),
-  _IconRule(iconKey: 'study', pattern: r'\b(natação|natacao|aula\s+de\s+natação|aula\s+de\s+natacao)\b', weight: 2),
+
+  // Natação
+  _IconRule(iconKey: 'swimming', pattern: r'\b(natação|natacao|nadar|aula\s+de\s+natação|aula\s+de\s+natacao)\b', weight: 4),
+  _IconRule(iconKey: 'swimming', pattern: r'\b(piscina|hidroginastica|hidroginástica|treino\s+de\s+natação|treino\s+de\s+natacao)\b', weight: 3),
 
   // Saúde
   _IconRule(iconKey: 'health', pattern: r'\b(dentista|medico|médico|hospital|clinica|clínica|consulta)\b', weight: 3),

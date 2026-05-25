@@ -46,6 +46,48 @@ void main() {
       expect(r.title.toLowerCase(), contains('dentista'));
     });
 
+    test('dentista 2 e meia da tarde', () {
+      final r = extractWhenPTBR('dentista 2 e meia da tarde', now);
+
+      expect(r.timeHHMM, '14:30');
+      expect(r.title.toLowerCase(), 'dentista');
+    });
+
+    test('dentista duas e meia da tarde', () {
+      final r = extractWhenPTBR('dentista duas e meia da tarde', now);
+
+      expect(r.timeHHMM, '14:30');
+      expect(r.title.toLowerCase(), 'dentista');
+    });
+
+    test('remedio 10 e trinta', () {
+      final r = extractWhenPTBR('remedio 10 e trinta', now);
+
+      expect(r.timeHHMM, '10:30');
+      expect(r.title.toLowerCase(), 'remedio');
+    });
+
+    test('ligar para o pedro cinco e meia', () {
+      final r = extractWhenPTBR('ligar para o pedro cinco e meia', now);
+
+      expect(r.timeHHMM, '05:30');
+      expect(r.title.toLowerCase(), 'ligar o pedro');
+    });
+
+    test('dentista 15 pras 6', () {
+      final r = extractWhenPTBR('dentista 15 pras 6', now);
+
+      expect(r.timeHHMM, '05:45');
+      expect(r.title.toLowerCase(), 'dentista');
+    });
+
+    test('reuniao 6 menos 15 da tarde', () {
+      final r = extractWhenPTBR('reuniao 6 menos 15 da tarde', now);
+
+      expect(r.timeHHMM, '17:45');
+      expect(r.title.toLowerCase(), 'reuniao');
+    });
+
     test('cortar meu cabelo hoje ao meio dia', () {
       final r = extractWhenPTBR('cortar meu cabelo hoje ao meio dia', now);
 
@@ -57,10 +99,7 @@ void main() {
     });
 
     test('reuniao dia 29 na sapion nova educacao', () {
-      final r = extractWhenPTBR(
-        'reuniao dia 29 na sapion nova educacao',
-        now,
-      );
+      final r = extractWhenPTBR('reuniao dia 29 na sapion nova educacao', now);
 
       expect(r.dateYmd, '2026-05-29');
       expect(r.timeHHMM, isNull);
@@ -96,17 +135,11 @@ void main() {
     final ref = DateTime(2026, 5, 24);
 
     test('mesmo mes futuro', () {
-      expect(
-        resolveDayOfMonth(29, ref),
-        DateTime(2026, 5, 29),
-      );
+      expect(resolveDayOfMonth(29, ref), DateTime(2026, 5, 29));
     });
 
     test('proximo mes quando dia ja passou', () {
-      expect(
-        resolveDayOfMonth(20, ref),
-        DateTime(2026, 6, 20),
-      );
+      expect(resolveDayOfMonth(20, ref), DateTime(2026, 6, 20));
     });
   });
 }

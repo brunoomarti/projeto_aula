@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../app/theme/tasker_card_style.dart';
 import '../../../../app/theme/tasker_colors.dart';
@@ -10,6 +12,7 @@ import '../../../../core/nlp/extract_errand_list_pt_br.dart';
 import '../../../../core/services/geocode_service.dart';
 import '../../domain/task.dart';
 import '../state/task_store.dart';
+import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/task_card.dart';
 import '../widgets/task_page_header.dart';
 import '../widgets/task_section_card.dart';
@@ -32,6 +35,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   String? _address;
   bool _loadingAddress = false;
   bool _togglingDone = false;
+  bool _confirmDeleteOpen = false;
   String? _addressLocationKey;
 
   late TaskStore _store;
@@ -150,43 +154,104 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     );
   }
 
+  Future<void> _confirmDeleteTask() async {
+    final task = _currentTask();
+    await _store.markTaskDeleted(task.id);
+    if (!mounted) return;
+    setState(() => _confirmDeleteOpen = false);
+  }
+
+  Future<void> _openRouteInMaps(Task task) async {
+    final loc = task.location;
+    if (loc == null) return;
+
+    final destination =
+        '${loc.lat.toStringAsFixed(6)},${loc.lng.toStringAsFixed(6)}';
+    final uri = switch (defaultTargetPlatform) {
+      TargetPlatform.iOS => Uri.https('maps.apple.com', '/', {
+        'daddr': destination,
+        'dirflg': 'd',
+      }),
+      _ => Uri.https('www.google.com', '/maps/dir/', {
+        'api': '1',
+        'destination': destination,
+        'travelmode': 'driving',
+      }),
+    };
+
+    final launched = await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (!mounted || launched) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Não foi possível abrir a rota no app de mapas.'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     context.watch<TaskStore>();
     final task = _currentTask();
     return Scaffold(
       backgroundColor: TaskerColors.appBackground,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: Stack(
         children: [
-          TaskPageHeaderBar(
-            title: 'Detalhes',
-            subtitle: 'Informações da tarefa',
-            onBack: () => Navigator.of(context).pop(),
-            trailing: IconButton(
-              onPressed: _openEdit,
-              icon: const Icon(Icons.edit_outlined),
-              color: TaskerColors.primaryText,
-              tooltip: 'Editar tarefa',
-            ),
-          ),
-          Expanded(
-            child: RefreshIndicator(
-              color: TaskerColors.primary,
-              onRefresh: _refreshAddress,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final width = constraints.maxWidth;
-                  return SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: TaskerBreakpoints.pagePadding(width),
-                    child: TaskerResponsiveContent(
-                      width: width,
-                      child: _buildBody(width, task),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TaskPageHeaderBar(
+                title: 'Detalhes',
+                subtitle: 'Informações da tarefa',
+                onBack: () => Navigator.of(context).pop(),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      onPressed: _openEdit,
+                      icon: const Icon(Icons.edit_outlined),
+                      color: TaskerColors.primaryText,
+                      tooltip: 'Editar tarefa',
                     ),
-                  );
-                },
+                    IconButton(
+                      onPressed: () => setState(() => _confirmDeleteOpen = true),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      color: const Color(0xFFE15E5B),
+                      tooltip: 'Excluir tarefa',
+                    ),
+                  ],
+                ),
               ),
+              Expanded(
+                child: RefreshIndicator(
+                  color: TaskerColors.primary,
+                  onRefresh: _refreshAddress,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final width = constraints.maxWidth;
+                      return SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: TaskerBreakpoints.pagePadding(width),
+                        child: TaskerResponsiveContent(
+                          width: width,
+                          child: _buildBody(width, task),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Positioned.fill(
+            child: ConfirmDeleteDialog(
+              open: _confirmDeleteOpen,
+              taskTitle: task.title,
+              onCancel: () => setState(() => _confirmDeleteOpen = false),
+              onConfirm: _confirmDeleteTask,
             ),
           ),
         ],
@@ -351,6 +416,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         task: task,
         address: _address,
         loadingAddress: _loadingAddress,
+        onOpenRoute: task.location == null ? null : () => _openRouteInMaps(task),
       ),
     );
   }
@@ -495,11 +561,13 @@ class _LocationSection extends StatelessWidget {
     required this.task,
     required this.address,
     required this.loadingAddress,
+    this.onOpenRoute,
   });
 
   final Task task;
   final String? address;
   final bool loadingAddress;
+  final VoidCallback? onOpenRoute;
 
   @override
   Widget build(BuildContext context) {
@@ -538,7 +606,20 @@ class _LocationSection extends StatelessWidget {
           )
         else if (address != null && address!.isNotEmpty)
           Text(
-            address!,
+            TaskLocation.formatAddressLine(
+              location: loc,
+              streetAddress: address,
+            ),
+            style: TextStyle(
+              color: TaskCardTokens.primaryText,
+              fontSize: 13,
+              height: 1.4,
+              fontWeight: FontWeight.w500,
+            ),
+          )
+        else if (loc.name != null && loc.name!.trim().isNotEmpty)
+          Text(
+            TaskLocation.formatAddressLine(location: loc),
             style: TextStyle(
               color: TaskCardTokens.primaryText,
               fontSize: 13,
@@ -555,6 +636,15 @@ class _LocationSection extends StatelessWidget {
               height: 1.35,
             ),
           ),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: onOpenRoute,
+            icon: const Icon(Icons.directions_outlined),
+            label: const Text('Abrir rota no mapa'),
+          ),
+        ),
       ],
     );
   }

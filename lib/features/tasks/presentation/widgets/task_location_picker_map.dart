@@ -32,9 +32,24 @@ class TaskLocationPickerMap extends StatefulWidget {
 
 class TaskLocationPickerMapState extends State<TaskLocationPickerMap> {
   final _mapKey = GlobalKey<_LocationMapSurfaceState>();
+  String? _selectedPlaceName;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPlaceName = widget.initialLocation?.name;
+  }
 
   /// Lê o pin (centro do mapa) só quando necessário — ex.: ao salvar a tarefa.
-  TaskLocation? get selectedLocation => _mapKey.currentState?.selectedLocation;
+  TaskLocation? get selectedLocation {
+    final coords = _mapKey.currentState?.selectedLocation;
+    if (coords == null) return null;
+    return TaskLocation(
+      lat: coords.lat,
+      lng: coords.lng,
+      name: _selectedPlaceName,
+    );
+  }
 
   Future<void> recenterOnDevice() =>
       _mapKey.currentState?.recenterOnDevice() ?? Future.value();
@@ -43,6 +58,10 @@ class TaskLocationPickerMapState extends State<TaskLocationPickerMap> {
   void refreshAfterLayout() => _mapKey.currentState?.refreshAfterLayout();
 
   void _onSearchSelected(AddressSuggestion suggestion) {
+    setState(() {
+      _selectedPlaceName =
+          suggestion.location.name ?? suggestion.establishmentName;
+    });
     _mapKey.currentState?.moveTo(suggestion.location);
   }
 

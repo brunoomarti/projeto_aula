@@ -3,10 +3,25 @@ import 'package:flutter/foundation.dart';
 /// Localização opcional (par latitude/longitude), espelhando o objeto `location` do app web.
 @immutable
 class TaskLocation {
-  const TaskLocation({required this.lat, required this.lng});
+  const TaskLocation({
+    required this.lat,
+    required this.lng,
+    this.name,
+  });
 
   final double lat;
   final double lng;
+
+  /// Nome do estabelecimento mencionado pelo usuário (ex.: «Ama Hospital Veterinário»).
+  final String? name;
+
+  TaskLocation copyWith({double? lat, double? lng, String? name}) {
+    return TaskLocation(
+      lat: lat ?? this.lat,
+      lng: lng ?? this.lng,
+      name: name ?? this.name,
+    );
+  }
 
   /// Aceita `lat`/`lng` ou `latitude`/`longitude` (formato web legado).
   static TaskLocation? tryParse(dynamic raw) {
@@ -26,13 +41,46 @@ class TaskLocation {
     if (lat == null || lng == null) {
       throw FormatException('location sem lat/lng');
     }
+    final rawName = json['name'];
+    final name = rawName is String && rawName.trim().isNotEmpty
+        ? rawName.trim()
+        : null;
+
     return TaskLocation(
       lat: (lat is num) ? lat.toDouble() : double.parse('$lat'),
       lng: (lng is num) ? lng.toDouble() : double.parse('$lng'),
+      name: name,
     );
   }
 
-  Map<String, dynamic> toJson() => {'lat': lat, 'lng': lng};
+  Map<String, dynamic> toJson() => {
+        'lat': lat,
+        'lng': lng,
+        if (name != null && name!.trim().isNotEmpty) 'name': name!.trim(),
+      };
+
+  /// Nome do estabelecimento + endereço resolvido (sem duplicar o nome).
+  static String formatAddressLine({
+    required TaskLocation location,
+    String? streetAddress,
+  }) {
+    final placeName = location.name?.trim();
+    final address = streetAddress?.trim();
+
+    if (placeName != null &&
+        placeName.isNotEmpty &&
+        address != null &&
+        address.isNotEmpty) {
+      final placeNorm = placeName.toLowerCase();
+      final addressNorm = address.toLowerCase();
+      if (addressNorm.contains(placeNorm)) return address;
+      return '$placeName · $address';
+    }
+
+    if (placeName != null && placeName.isNotEmpty) return placeName;
+    if (address != null && address.isNotEmpty) return address;
+    return '${location.lat.toStringAsFixed(4)}, ${location.lng.toStringAsFixed(4)}';
+  }
 }
 
 /// Modelo de tarefa — persistência apenas local ([tasker-main/src/utils/db.js]).

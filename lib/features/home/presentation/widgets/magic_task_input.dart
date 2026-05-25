@@ -67,6 +67,7 @@ class MagicTaskInput extends StatefulWidget {
     this.onCreated,
     this.autofocus = false,
     this.onChromeActiveChanged,
+    this.onHasTextChanged,
   });
 
   /// Dia selecionado na home — usado quando o NLP não extrai data.
@@ -75,6 +76,7 @@ class MagicTaskInput extends StatefulWidget {
   final VoidCallback? onCreated;
   final bool autofocus;
   final ValueChanged<bool>? onChromeActiveChanged;
+  final ValueChanged<bool>? onHasTextChanged;
 
   @override
   State<MagicTaskInput> createState() => MagicTaskInputState();
@@ -112,6 +114,7 @@ class MagicTaskInputState extends State<MagicTaskInput>
   bool _isHoldToTalk = false;
 
   double _lastViewInsetBottom = 0;
+  DateTime? _suppressOutsideDismissUntil;
 
   @override
   void initState() {
@@ -152,13 +155,19 @@ class MagicTaskInputState extends State<MagicTaskInput>
 
   void _onFocusChanged() {
     if (_focusNode.hasFocus) {
+      _suppressOutsideDismissUntil = DateTime.now().add(
+        const Duration(milliseconds: 450),
+      );
+      _typingTimer?.cancel();
+      _cursorTimer?.cancel();
       if (!_borderController.isAnimating) {
         _borderController.repeat();
       }
     } else if (!_isListening) {
       _borderController.stop();
+      _resumePlaceholderIfIdle();
+      _startCursorBlink();
     }
-    setState(() {});
     _notifyChromeActive();
   }
 
@@ -166,19 +175,61 @@ class MagicTaskInputState extends State<MagicTaskInput>
     widget.onChromeActiveChanged?.call(_focusNode.hasFocus || _isListening);
   }
 
+  void _notifyHasText() {
+    widget.onHasTextChanged?.call(_controller.text.trim().isNotEmpty);
+  }
+
   /// Fecha teclado, foco e gravação de voz (ex.: botão voltar).
   void dismissChrome() => _dismissInputChrome();
 
   bool get isChromeActive => _focusNode.hasFocus || _isListening;
 
+  void _releaseFocus({bool hideKeyboard = true}) {
+    if (hideKeyboard) {
+      SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    }
+
+    final textLen = _controller.text.length;
+    _controller.selection = TextSelection.collapsed(offset: textLen);
+
+    if (_focusNode.hasFocus) {
+      _focusNode.unfocus(disposition: UnfocusDisposition.scope);
+    }
+
+    final primary = FocusManager.instance.primaryFocus;
+    if (primary != null &&
+        primary.context?.findAncestorStateOfType<MagicTaskInputState>() !=
+            null) {
+      primary.unfocus(disposition: UnfocusDisposition.scope);
+    }
+
+    if (!_isListening) {
+      _borderController
+        ..stop()
+        ..reset();
+    }
+
+    if (mounted) {
+      setState(() {});
+      _notifyChromeActive();
+    }
+  }
+
   @override
   void didChangeMetrics() {
     if (!mounted) return;
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
-    if (_lastViewInsetBottom > 0 && bottom == 0 && _focusNode.hasFocus) {
-      _focusNode.unfocus();
-    }
+    final previous = _lastViewInsetBottom;
     _lastViewInsetBottom = bottom;
+
+    // Só reage ao fechamento estável do teclado — evita falso positivo na abertura.
+    if (previous < 80 || bottom >= 80 || !_focusNode.hasFocus) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_focusNode.hasFocus) return;
+      if (MediaQuery.viewInsetsOf(context).bottom >= 80) return;
+      _releaseFocus(hideKeyboard: false);
+    });
   }
 
   void _dismissInputChrome() {
@@ -186,13 +237,26 @@ class MagicTaskInputState extends State<MagicTaskInput>
       unawaited(_cancelHoldVoice());
       return;
     }
-    if (_focusNode.hasFocus) {
-      _focusNode.unfocus();
+    _releaseFocus();
+  }
+
+  void _handleTapOutside() {
+    if (_suppressOutsideDismissUntil != null &&
+        DateTime.now().isBefore(_suppressOutsideDismissUntil!)) {
+      return;
     }
+    if (_isListening) {
+      unawaited(_cancelHoldVoice());
+      return;
+    }
+    _releaseFocus();
   }
 
   bool get _placeholderPaused =>
-      _controller.text.isNotEmpty || _isListening || _isSubmitting;
+      _focusNode.hasFocus ||
+      _controller.text.isNotEmpty ||
+      _isListening ||
+      _isSubmitting;
 
   void _startCursorBlink() {
     _cursorTimer?.cancel();
@@ -236,15 +300,15 @@ class MagicTaskInputState extends State<MagicTaskInput>
             _typedLen++;
             _animatedPhrase = phrase.substring(0, _typedLen);
           });
-          _typingTimer = Timer(
-            const Duration(milliseconds: _kTypeMs),
-            step,
-          );
+          _typingTimer = Timer(const Duration(milliseconds: _kTypeMs), step);
         } else {
           _typingTimer = Timer(const Duration(milliseconds: _kHoldEndMs), () {
             if (!mounted) return;
             setState(() => _deleting = true);
-            _typingTimer = Timer(const Duration(milliseconds: _kDeleteMs), step);
+            _typingTimer = Timer(
+              const Duration(milliseconds: _kDeleteMs),
+              step,
+            );
           });
         }
       } else {
@@ -253,17 +317,17 @@ class MagicTaskInputState extends State<MagicTaskInput>
             _typedLen--;
             _animatedPhrase = phrase.substring(0, _typedLen);
           });
-          _typingTimer = Timer(
-            const Duration(milliseconds: _kDeleteMs),
-            step,
-          );
+          _typingTimer = Timer(const Duration(milliseconds: _kDeleteMs), step);
         } else {
           _phraseQueue.removeAt(0);
           if (_phraseQueue.isEmpty) {
             _phraseQueue = _shuffleSuggestions(_kSuggestions);
           }
           setState(() => _deleting = false);
-          _typingTimer = Timer(const Duration(milliseconds: _kHoldStartMs), step);
+          _typingTimer = Timer(
+            const Duration(milliseconds: _kHoldStartMs),
+            step,
+          );
         }
       }
     }
@@ -274,7 +338,10 @@ class MagicTaskInputState extends State<MagicTaskInput>
     );
   }
 
-  void _setHint(String message, {Duration duration = const Duration(milliseconds: 1200)}) {
+  void _setHint(
+    String message, {
+    Duration duration = const Duration(milliseconds: 1200),
+  }) {
     _hintTimer?.cancel();
     setState(() => _hint = message);
     _hintTimer = Timer(duration, () {
@@ -292,13 +359,14 @@ class MagicTaskInputState extends State<MagicTaskInput>
       !_placeholderPaused && _controller.text.isEmpty;
 
   TextStyle get _hintTextStyle => TextStyle(
-        color: TaskerColors.secondaryText.withValues(alpha: 0.6),
-        fontSize: 14,
-        height: 1.2,
-      );
+    color: TaskerColors.secondaryText.withValues(alpha: 0.6),
+    fontSize: 14,
+    height: 1.2,
+  );
 
   Future<Task> _buildTaskFromText(String text) async {
-    if (MagicInputParserConfig.useGeminiParser && EnvConfig.isGeminiConfigured) {
+    if (MagicInputParserConfig.useGeminiParser &&
+        EnvConfig.isGeminiConfigured) {
       try {
         return await _buildTaskFromTextWithGemini(text);
       } catch (e, st) {
@@ -310,8 +378,10 @@ class MagicTaskInputState extends State<MagicTaskInput>
 
     final normalized = dedupeRepeatedSpeech(text.trim());
     final placeExtract = extractPlacePTBR(normalized);
-    final errandExtract =
-        extractErrandListPTBR(normalized, place: placeExtract);
+    final errandExtract = extractErrandListPTBR(
+      normalized,
+      place: placeExtract,
+    );
     final referenceDate = TaskStore.dateOnly(widget.selectedDate);
     final parsed = extractWhenPTBR(normalized, referenceDate);
     final icon = inferTaskIconPTBR(normalized);
@@ -332,7 +402,16 @@ class MagicTaskInputState extends State<MagicTaskInput>
 
     String title;
     if (placeExtract != null && errandExtract != null) {
-      title = errandTitleForPlace(placeExtract.searchQuery, errandExtract.verb);
+      title = resolveErrandDisplayTitle(
+        primaryTitle: _capFirst(
+          rawTitle.isNotEmpty
+              ? rawTitle
+              : (parsed.title.isNotEmpty ? parsed.title : normalized),
+        ),
+        place: placeExtract,
+        errand: errandExtract,
+        errandItems: errandExtract.items,
+      );
     } else {
       title = _capFirst(
         rawTitle.isNotEmpty
@@ -340,8 +419,22 @@ class MagicTaskInputState extends State<MagicTaskInput>
             : (parsed.title.isNotEmpty ? parsed.title : normalized),
       );
     }
-    final data =
-        parsed.dateYmd ?? TaskStore.formatDateYmd(referenceDate);
+    if (placeExtract != null && errandExtract == null) {
+      title = _capFirst(
+        enrichTitleWithPlaceDestination(
+          title: title,
+          placeQuery: placeExtract.searchQuery,
+        ),
+      );
+    }
+    title = _capFirst(
+      enrichTitleWithTranscriptContext(
+        title: title,
+        transcript: normalized,
+        placeQuery: placeExtract?.searchQuery,
+      ),
+    );
+    final data = parsed.dateYmd ?? TaskStore.formatDateYmd(referenceDate);
     final hora = parsed.timeHHMM ?? '';
 
     TaskLocation? location;
@@ -394,11 +487,30 @@ class MagicTaskInputState extends State<MagicTaskInput>
         : formatErrandDescription(parsed.errandItems);
 
     var title = _capFirst(parsed.title);
-    if (parsed.placeSearchQuery != null &&
-        parsed.errandItems.isNotEmpty &&
-        parsed.placeSearchQuery!.trim().isNotEmpty) {
+    if (parsed.errandItems.isNotEmpty) {
+      final errandExtract = extractErrandListPTBR(
+        normalized,
+        place: parsed.placeSearchQuery != null
+            ? ExtractPlaceResult(
+                searchQuery: parsed.placeSearchQuery!,
+                matchedText: parsed.placeSearchQuery!,
+                skipGeocoding: parsed.placeSkipGeocoding,
+              )
+            : null,
+      );
       title = _capFirst(
-        errandTitleForPlace(parsed.placeSearchQuery!.trim(), 'comprar'),
+        resolveErrandDisplayTitle(
+          primaryTitle: parsed.title,
+          place: parsed.placeSearchQuery != null
+              ? ExtractPlaceResult(
+                  searchQuery: parsed.placeSearchQuery!,
+                  matchedText: parsed.placeSearchQuery!,
+                  skipGeocoding: parsed.placeSkipGeocoding,
+                )
+              : null,
+          errand: errandExtract,
+          errandItems: parsed.errandItems,
+        ),
       );
     }
 
@@ -406,13 +518,15 @@ class MagicTaskInputState extends State<MagicTaskInput>
     if (parsed.placeSearchQuery != null && !parsed.placeSkipGeocoding) {
       final placeExtract = ExtractPlaceResult(
         searchQuery: parsed.placeSearchQuery!,
-        matchedText: parsed.placeSearchQuery!,
+        matchedText: parsed.placeDisplayName ?? parsed.placeSearchQuery!,
         skipGeocoding: false,
       );
       var near = await LocationService.getQuickLocationForMap();
       near ??= await LocationService.refineLocationForMap();
       final resolved = await resolvePlaceLocation(placeExtract, near: near);
-      location = resolved?.location;
+      location = resolved?.location.copyWith(
+        name: parsed.placeDisplayName ?? resolved.location.name,
+      );
     }
 
     final now = DateTime.now();
@@ -459,10 +573,15 @@ class MagicTaskInputState extends State<MagicTaskInput>
 
       _liveTranscript = '';
       _controller.clear();
+      _notifyHasText();
+      _releaseFocus();
       _setHint('Tarefa criada ✅');
     } catch (e, st) {
       debugPrint('MagicTaskInput._createTaskFromText: $e\n$st');
-      _setHint('Falha ao criar tarefa', duration: const Duration(milliseconds: 1500));
+      _setHint(
+        'Falha ao criar tarefa',
+        duration: const Duration(milliseconds: 1500),
+      );
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
@@ -483,6 +602,7 @@ class MagicTaskInputState extends State<MagicTaskInput>
     });
     _notifyChromeActive();
     _controller.clear();
+    _notifyHasText();
     _setHint(
       holdToTalk
           ? 'Gravando… solte para criar a tarefa'
@@ -501,7 +621,9 @@ class MagicTaskInputState extends State<MagicTaskInput>
         if (!mounted || sessionId != _voiceSessionId || _isSubmitting) return;
         _liveTranscript = transcript;
         _controller.text = transcript;
-        _controller.selection = TextSelection.collapsed(offset: transcript.length);
+        _controller.selection = TextSelection.collapsed(
+          offset: transcript.length,
+        );
       },
       onError: (message) {
         if (!mounted) return;
@@ -540,6 +662,7 @@ class MagicTaskInputState extends State<MagicTaskInput>
     });
     _notifyChromeActive();
     _controller.clear();
+    _notifyHasText();
     _borderController.duration = const Duration(seconds: 4);
     await TaskSpeechService.stopListening();
     _setHint('Gravação cancelada');
@@ -568,15 +691,17 @@ class MagicTaskInputState extends State<MagicTaskInput>
     // Invalida callbacks tardios só depois de aguardar o ASR finalizar.
     _voiceSessionId++;
 
-    final finalTranscript = (finalized.isNotEmpty
-            ? finalized
-            : (_liveTranscript.isNotEmpty
-                ? _liveTranscript
-                : _controller.text))
-        .trim();
+    final finalTranscript =
+        (finalized.isNotEmpty
+                ? finalized
+                : (_liveTranscript.isNotEmpty
+                      ? _liveTranscript
+                      : _controller.text))
+            .trim();
 
     _liveTranscript = '';
     _controller.clear();
+    _notifyHasText();
 
     if (!wasListening) {
       await TaskSpeechService.stopListening();
@@ -604,113 +729,127 @@ class MagicTaskInputState extends State<MagicTaskInput>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-            if (_hint.isNotEmpty) ...[
-              _MagicInputHintBubble(message: _hint),
-              const SizedBox(height: 8),
-            ],
-            _MagicInputShell(
-              focused: _focusNode.hasFocus,
-              listening: _isListening,
-              borderAnimation: _borderController,
+          if (_hint.isNotEmpty) ...[
+            _MagicInputHintBubble(message: _hint),
+            const SizedBox(height: 8),
+          ],
+          RepaintBoundary(
+            child: ListenableBuilder(
+              listenable: _focusNode,
+              builder: (context, child) {
+                return _MagicInputShell(
+                  focused: _focusNode.hasFocus,
+                  listening: _isListening,
+                  borderAnimation: _borderController,
+                  child: child!,
+                );
+              },
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  _kInputInset + _kIconLeftExtra,
-                  _kInputInset,
-                  _kInputInset,
-                  _kInputInset,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.auto_awesome,
-                      size: 20,
-                      color: TaskerColors.primary,
-                    ),
-                    const SizedBox(width: _kIconTextGap),
-                    Expanded(
-                      child: Stack(
-                        alignment: Alignment.centerLeft,
-                        children: [
-                          if (_showAnimatedPlaceholder)
-                            IgnorePointer(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      _animatedPhrase,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: _hintTextStyle,
-                                    ),
+              padding: const EdgeInsets.fromLTRB(
+                _kInputInset + _kIconLeftExtra,
+                _kInputInset,
+                _kInputInset,
+                _kInputInset,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.auto_awesome,
+                    size: 20,
+                    color: TaskerColors.primary,
+                  ),
+                  const SizedBox(width: _kIconTextGap),
+                  Expanded(
+                    child: Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        if (_showAnimatedPlaceholder)
+                          IgnorePointer(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    _animatedPhrase,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: _hintTextStyle,
                                   ),
-                                  Opacity(
-                                    opacity: _cursorOn ? 1 : 0,
-                                    child: Text(
-                                      _kCursorChar,
-                                      style: _hintTextStyle,
-                                    ),
+                                ),
+                                Opacity(
+                                  opacity: _cursorOn ? 1 : 0,
+                                  child: Text(
+                                    _kCursorChar,
+                                    style: _hintTextStyle,
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                          TextField(
-                            controller: _controller,
-                            focusNode: _focusNode,
-                            enabled: !_isSubmitting,
-                            onChanged: (_) => setState(() {
+                          ),
+                        TextField(
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          enabled: !_isSubmitting,
+                          onTapOutside: (_) => _handleTapOutside(),
+                          onChanged: (_) {
+                            setState(() {
                               if (_controller.text.isNotEmpty) {
                                 _animatedPhrase = '';
                               } else {
                                 _resumePlaceholderIfIdle();
                               }
-                            }),
-                            onSubmitted: (value) {
-                              if (value.trim().isNotEmpty &&
-                                  !_isListening &&
-                                  !_isSubmitting) {
-                                _createTaskFromText(value);
-                              }
-                            },
-                            decoration: InputDecoration(
-                              hintText: _fieldHintText,
-                              hintStyle: _hintTextStyle,
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              contentPadding: EdgeInsets.zero,
-                              isCollapsed: true,
-                            ),
-                            style: const TextStyle(
-                              fontSize: 14,
-                              height: 1.2,
-                              color: TaskerColors.primaryText,
-                            ),
-                            textInputAction: TextInputAction.done,
+                            });
+                            _notifyHasText();
+                          },
+                          onSubmitted: (value) {
+                            if (value.trim().isNotEmpty &&
+                                !_isListening &&
+                                !_isSubmitting) {
+                              _createTaskFromText(value);
+                            } else {
+                              _releaseFocus();
+                            }
+                          },
+                          decoration: InputDecoration(
+                            hintText: _fieldHintText,
+                            hintStyle: _hintTextStyle,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            contentPadding: EdgeInsets.zero,
+                            isCollapsed: true,
                           ),
-                        ],
-                      ),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            height: 1.2,
+                            color: TaskerColors.primaryText,
+                          ),
+                          textInputAction: TextInputAction.done,
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: _kIconTextGap),
-                    _MagicActionButton(
-                      showSend: _showSend,
-                      isListening: _isListening,
-                      isHoldToTalk: _isHoldToTalk,
-                      isSubmitting: _isSubmitting,
-                      onMicTap: () => _startVoice(),
-                      onMicHoldStart: () => _startVoice(holdToTalk: true),
-                      onMicHoldEnd: _stopVoiceAndSubmit,
-                      onMicHoldCancel: _cancelHoldVoice,
-                      onSend: _isListening
-                          ? _stopVoiceAndSubmit
-                          : () => _createTaskFromText(_controller.text),
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: _kIconTextGap),
+                  _MagicActionButton(
+                    showSend: _showSend,
+                    isListening: _isListening,
+                    isHoldToTalk: _isHoldToTalk,
+                    isSubmitting: _isSubmitting,
+                    onMicTap: () => _startVoice(),
+                    onMicHoldStart: () => _startVoice(holdToTalk: true),
+                    onMicHoldEnd: _stopVoiceAndSubmit,
+                    onMicHoldCancel: _cancelHoldVoice,
+                    onSend: _isListening
+                        ? _stopVoiceAndSubmit
+                        : () => _createTaskFromText(_controller.text),
+                  ),
+                ],
               ),
             ),
-          ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -783,89 +922,43 @@ class _MagicInputShell extends StatelessWidget {
     final border = listening ? 2.25 : _borderWidth;
     final innerRadius = _radius - border;
 
+    final innerCard = DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(innerRadius),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 14,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
+
     return AnimatedBuilder(
       animation: borderAnimation,
-      builder: (context, _) {
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            if (active)
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: _MagicInputGlowPainter(
-                    progress: borderAnimation.value,
-                    borderRadius: _radius,
-                  ),
-                ),
-              ),
-            Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(_radius),
-                gradient: active
-                    ? SweepGradient(
-                        colors: _gradientColors,
-                        transform: GradientRotation(
-                          borderAnimation.value * math.pi * 2,
-                        ),
-                      )
-                    : null,
-                color: active ? null : _idleBorderColor,
-              ),
-              padding: EdgeInsets.all(border),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(innerRadius),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x0A000000),
-                      blurRadius: 14,
-                      offset: Offset(0, 4),
+      builder: (context, innerChild) {
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(_radius),
+            gradient: active
+                ? SweepGradient(
+                    colors: _gradientColors,
+                    transform: GradientRotation(
+                      borderAnimation.value * math.pi * 2,
                     ),
-                  ],
-                ),
-                child: child,
-              ),
-            ),
-          ],
+                  )
+                : null,
+            color: active ? null : _idleBorderColor,
+          ),
+          padding: EdgeInsets.all(border),
+          child: innerChild,
         );
       },
+      child: innerCard,
     );
-  }
-}
-
-/// Halo colorido que acompanha a rotação da borda ativa.
-class _MagicInputGlowPainter extends CustomPainter {
-  const _MagicInputGlowPainter({
-    required this.progress,
-    required this.borderRadius,
-  });
-
-  final double progress;
-  final double borderRadius;
-
-  static const _gradientColors = _MagicInputShell._gradientColors;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final rrect = RRect.fromRectAndRadius(rect, Radius.circular(borderRadius));
-    final shader = SweepGradient(
-      colors: _gradientColors,
-      transform: GradientRotation(progress * math.pi * 2),
-    ).createShader(rect);
-
-    final glowPaint = Paint()
-      ..shader = shader
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-    canvas.drawRRect(rrect, glowPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _MagicInputGlowPainter oldDelegate) {
-    return oldDelegate.progress != progress;
   }
 }
 
@@ -919,14 +1012,11 @@ class _MagicActionButtonState extends State<_MagicActionButton> {
 
     _holdTriggered = false;
     _holdActive = true;
-    _holdTimer = Timer(
-      const Duration(milliseconds: _kHoldToTalkDelayMs),
-      () {
-        if (!mounted || !_holdActive) return;
-        _holdTriggered = true;
-        widget.onMicHoldStart();
-      },
-    );
+    _holdTimer = Timer(const Duration(milliseconds: _kHoldToTalkDelayMs), () {
+      if (!mounted || !_holdActive) return;
+      _holdTriggered = true;
+      widget.onMicHoldStart();
+    });
   }
 
   void _onPointerUp(PointerUpEvent event) {
@@ -972,14 +1062,8 @@ class _MagicActionButtonState extends State<_MagicActionButton> {
           : Stack(
               alignment: Alignment.center,
               children: [
-                _SwapIcon(
-                  icon: Icons.mic,
-                  visible: micVisual,
-                ),
-                _SwapIcon(
-                  icon: Icons.send_rounded,
-                  visible: !micVisual,
-                ),
+                _SwapIcon(icon: Icons.mic, visible: micVisual),
+                _SwapIcon(icon: Icons.send_rounded, visible: !micVisual),
               ],
             ),
     );

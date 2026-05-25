@@ -6,9 +6,7 @@ import 'package:tasker_project/core/nlp/extract_when_pt_br.dart';
 void main() {
   group('parseErrandListFromDescription', () {
     test('lê itens com marcador •', () {
-      final items = parseErrandListFromDescription(
-        '• Banana\n• Maca\n• Mamao',
-      );
+      final items = parseErrandListFromDescription('• Banana\n• Maca\n• Mamao');
       expect(items, ['Banana', 'Maca', 'Mamao']);
       expect(isErrandListDescription('• Banana\n• Maca'), isTrue);
     });
@@ -28,31 +26,55 @@ void main() {
 
   group('parseErrandItems', () {
     test('separa vírgulas e e', () {
-      expect(
-        parseErrandItems('banana, maça e mamao'),
-        ['banana', 'maça', 'mamao'],
-      );
+      expect(parseErrandItems('banana, maça e mamao'), [
+        'banana',
+        'maça',
+        'mamao',
+      ]);
     });
 
     test('recupera lista após normPT remover vírgulas', () {
-      expect(
-        parseErrandItems('banana  maca e mamao'),
-        ['banana', 'maca', 'mamao'],
-      );
+      expect(parseErrandItems('banana  maca e mamao'), [
+        'banana',
+        'maca',
+        'mamao',
+      ]);
     });
 
     test('expande palavras soltas sem vírgula', () {
+      expect(parseErrandItems('mamao banana e acucar'), [
+        'mamao',
+        'banana',
+        'acucar',
+      ]);
+    });
+  });
+
+  group('parseActionErrandItems', () {
+    test('separa acoes por virgula', () {
       expect(
-        parseErrandItems('mamao banana e acucar'),
-        ['mamao', 'banana', 'acucar'],
+        parseActionErrandItems(
+          'pagar uma conta no mercadao, comprar linhaca, buscar um condicional na musa',
+        ),
+        [
+          'Pagar uma conta no mercadao',
+          'Comprar linhaca',
+          'Buscar um condicional na musa',
+        ],
       );
+    });
+
+    test('separa acoes ligadas por e', () {
+      expect(parseActionErrandItems('pagar conta e comprar linhaca'), [
+        'Pagar conta',
+        'Comprar linhaca',
+      ]);
     });
   });
 
   group('extractErrandListPTBR', () {
     test('supermercado de tarde com frutas', () {
-      const text =
-          'ir no supermercado de tarde comprar mamão banana e açúcar';
+      const text = 'ir no supermercado de tarde comprar mamão banana e açúcar';
       final place = extractPlacePTBR(text);
       final errand = extractErrandListPTBR(text, place: place);
       final when = extractWhenPTBR(text);
@@ -67,7 +89,10 @@ void main() {
       expect(errand!.items.length, 3);
       expect(errand.items[0].toLowerCase(), contains('mam'));
       expect(errand.items[1].toLowerCase(), 'banana');
-      expect(errand.items[2].toLowerCase(), anyOf(contains('aç'), contains('acucar')));
+      expect(
+        errand.items[2].toLowerCase(),
+        anyOf(contains('aç'), contains('acucar')),
+      );
 
       expect(when.timeHHMM, '15:00');
 
@@ -78,7 +103,7 @@ void main() {
     test('supermercado comprar frutas sem de tarde', () {
       const text = 'ir no supermercado comprar mamao banana e maca';
       final place = extractPlacePTBR(text);
-      final errand  = extractErrandListPTBR(text, place: place);
+      final errand = extractErrandListPTBR(text, place: place);
 
       expect(place, isNotNull);
       expect(place!.searchQuery.toLowerCase(), 'supermercado');
@@ -91,8 +116,7 @@ void main() {
     });
 
     test('lavagnoli com frutas e horário', () {
-      const text =
-          'ir no lavangnoli comprar banana, maça e mamao de tarde';
+      const text = 'ir no lavangnoli comprar banana, maça e mamao de tarde';
       final place = extractPlacePTBR(text);
       final errand = extractErrandListPTBR(text, place: place);
       final when = extractWhenPTBR(text);
@@ -126,10 +150,7 @@ void main() {
     });
 
     test('exige dois itens sem local', () {
-      expect(
-        extractErrandListPTBR('comprar leite amanhã'),
-        isNull,
-      );
+      expect(extractErrandListPTBR('comprar leite amanhã'), isNull);
       final list = extractErrandListPTBR('comprar pão e café amanhã');
       expect(list, isNotNull);
       expect(list!.items.length, 2);
@@ -150,6 +171,27 @@ void main() {
       final cleaned = stripErrandFromTitle(text, errand);
       expect(cleaned.toLowerCase(), isNot(contains('ingresso')));
       expect(cleaned.toLowerCase(), isNot(contains('pipoca')));
+    });
+
+    test('lista de acoes na rua', () {
+      const text =
+          'preciso ir na rua para pagar uma conta no mercadao, comprar linhaca, buscar um condicional na musa';
+      final errand = extractErrandListPTBR(text);
+
+      expect(errand, isNotNull);
+      expect(errand!.isActionList, isTrue);
+      expect(errand.items.length, 3);
+      expect(errand.parentTitle, 'Ir na rua');
+      expect(errand.items[0].toLowerCase(), contains('pagar'));
+      expect(errand.items[1].toLowerCase(), contains('linh'));
+      expect(errand.items[2].toLowerCase(), contains('buscar'));
+
+      final title = resolveErrandDisplayTitle(
+        primaryTitle: 'Ir na rua',
+        errand: errand,
+        errandItems: errand.items,
+      );
+      expect(title, 'Ir na rua');
     });
   });
 }

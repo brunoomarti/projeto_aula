@@ -97,6 +97,16 @@ abstract final class TaskIconCatalog {
       label: 'Academia',
     ),
     TaskIconOption(
+      key: 'ball_sports',
+      icon: Icons.sports_soccer_outlined,
+      label: 'Esporte com bola',
+    ),
+    TaskIconOption(
+      key: 'swimming',
+      icon: Icons.pool_outlined,
+      label: 'Natação',
+    ),
+    TaskIconOption(
       key: 'market',
       icon: Icons.shopping_cart_outlined,
       label: 'Mercado',
