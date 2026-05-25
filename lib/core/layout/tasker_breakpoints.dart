@@ -73,10 +73,10 @@ class TaskerResponsiveContent extends StatelessWidget {
 
     return Padding(
       padding: EdgeInsets.fromLTRB(inset, 0, inset, 0).add(outerPadding),
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxW),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxW),
+        child: SizedBox(
+          width: double.infinity,
           child: child,
         ),
       ),
