@@ -14,6 +14,7 @@ import 'package:uuid/uuid.dart';
 import '../../../../app/theme/tasker_card_style.dart';
 import '../../../../app/theme/tasker_colors.dart';
 import '../../../../core/layout/tasker_breakpoints.dart';
+import '../../../../core/services/geocode_service.dart';
 import '../../../../core/widgets/tasker_sliding_segmented_control.dart';
 import '../../../../core/widgets/tasker_floating_page_shell.dart';
 import '../../../../core/widgets/tasker_glass_footer_bar.dart';
@@ -69,6 +70,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
   TimeOfDay? _hora;
   bool _done = false;
   bool _includeLocation = false;
+  TaskLocation? _savedLocation;
   String _iconKey = TaskIconCatalog.defaultIconKey;
   int _iconBackgroundArgb = TaskIconCatalog.defaultColor.backgroundArgb;
 
@@ -99,6 +101,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
       _hora = _parseHora(existing.hora);
       _done = existing.done;
       _includeLocation = existing.location != null;
+      _savedLocation = existing.location;
       _iconKey = existing.iconKey ?? TaskIconCatalog.defaultIconKey;
       _iconBackgroundArgb = existing.iconBackgroundArgb ??
           TaskIconCatalog.defaultColor.backgroundArgb;
@@ -330,7 +333,10 @@ class _NewTaskPageState extends State<NewTaskPage> {
   }
 
   void _onIncludeLocationChanged(bool value) {
-    setState(() => _includeLocation = value);
+    setState(() {
+      _includeLocation = value;
+      if (!value) _savedLocation = null;
+    });
     if (value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _mapPickerKey.currentState?.recenterOnDevice();
@@ -339,6 +345,28 @@ class _NewTaskPageState extends State<NewTaskPage> {
         });
       });
     }
+  }
+
+  /// Localização escolhida no passo «Quando e local» (o mapa é desmontado nos passos seguintes).
+  TaskLocation? get _effectiveLocation {
+    if (!_includeLocation) return null;
+    return _mapPickerKey.currentState?.selectedLocation ?? _savedLocation;
+  }
+
+  void _syncLocationFromPicker() {
+    if (!_includeLocation) {
+      _savedLocation = null;
+      return;
+    }
+    final picked = _mapPickerKey.currentState?.selectedLocation;
+    if (picked != null) {
+      _savedLocation = picked;
+    }
+  }
+
+  void _onPickerLocationChanged(TaskLocation? location) {
+    if (!_includeLocation || location == null) return;
+    setState(() => _savedLocation = location);
   }
 
   Task _buildTask({
@@ -389,9 +417,11 @@ class _NewTaskPageState extends State<NewTaskPage> {
     }
 
     try {
-      final location = _includeLocation
-          ? _mapPickerKey.currentState?.selectedLocation
-          : null;
+      if (_currentStep == 1) _syncLocationFromPicker();
+      var location = _includeLocation ? _effectiveLocation : null;
+      if (location != null) {
+        location = await GeocodeService.enrichLocationIfNeeded(location);
+      }
       final task = _buildTask(
         location: location,
         includeLocation: _includeLocation,
@@ -467,9 +497,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
 
   Task _buildPreviewTask() {
     final title = _titleController.text.trim();
-    final location = _includeLocation
-        ? _mapPickerKey.currentState?.selectedLocation
-        : null;
+    final location = _includeLocation ? _effectiveLocation : null;
 
     return Task(
       id: 'preview',
@@ -524,6 +552,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
     }
 
     if (_currentStep < _stepCount - 1) {
+      if (_currentStep == 1) _syncLocationFromPicker();
       setState(() {
         _stepDirection = 1;
         _currentStep += 1;
@@ -870,7 +899,9 @@ class _NewTaskPageState extends State<NewTaskPage> {
               child: TaskLocationPickerMap(
                 key: _mapPickerKey,
                 embedded: true,
-                initialLocation: _includeLocation ? _initialLocation : null,
+                initialLocation:
+                    _includeLocation ? (_savedLocation ?? _initialLocation) : null,
+                onLocationChanged: _onPickerLocationChanged,
               ),
             ),
           ),
@@ -895,7 +926,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
 
   String _reviewLocationText() {
     if (!_includeLocation) return 'Sem localização';
-    final location = _mapPickerKey.currentState?.selectedLocation;
+    final location = _effectiveLocation;
     if (location?.name?.trim().isNotEmpty == true) {
       return location!.name!.trim();
     }

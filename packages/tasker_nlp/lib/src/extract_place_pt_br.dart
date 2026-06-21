@@ -94,6 +94,9 @@ const _kErrandVerbTokens = {
 const _kPlaceStopLookahead =
     r'(?=(?:'
     r'\s+de\s+(?:tarde|manha|noite|madrugada|almoco|cedo)\b'
+    r'|\s+(?:inicio|comeco|comecinho|principio|fim)\s+(?:da|de|do)\s+'
+    r'(?:manha|tarde|noite|madrugada|almoco)\b'
+    r'|\s+no\s+(?:inicio|comeco|comecinho|principio|fim)\b'
     r'|\s+(?:hoje|amanha|depois|agora|cedo|tarde|noite|manha|madrugada|almoco|'
     r'as|às|a\s+\d|daqui|para|pra|pro|p\/|comprar|pegar|buscar|levantar|com|que|'
     r'e\s+as|e\s+a|e\s+\d)'
@@ -267,6 +270,14 @@ String _trimPlaceCapture(String raw) {
   var s = raw.trim();
   s = s.replaceAll(RegExp(r'[,\.;]+$'), '').trim();
   // Corta lixo temporal — \b evita apagar nomes como "atacadao" (começam com "a").
+  s = s.replaceAll(
+    RegExp(
+      r'\s+(?:no|na|em)\s+(?:inicio|comeco|comecinho|principio|fim)\s+'
+      r'(?:da|de|do)\s+(?:tarde|manha|noite|madrugada|almoco|cedo)\b\s*.*$',
+      caseSensitive: false,
+    ),
+    '',
+  );
   s = s.replaceAll(
     RegExp(
       r'\s+(?:de|da|do)\s+(?:tarde|manha|noite|madrugada|almoco|cedo)\b\s*.*$',

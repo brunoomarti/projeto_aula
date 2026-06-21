@@ -616,6 +616,9 @@ String resolveErrandDisplayTitle({
 
   if (place != null && errandItems.isNotEmpty) {
     final verb = errand?.verb ?? 'comprar';
+    if (errandItems.length == 1 && !errandItemsLookLikeActions(errandItems)) {
+      return _capFirst('$verb ${errandItems.first}');
+    }
     return errandTitleForPlace(place.searchQuery, verb);
   }
 

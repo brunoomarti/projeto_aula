@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: tasker_nlp unit tests
+        run: dart test packages/tasker_nlp
+
+      - name: Flutter tests
+        run: flutter test
+
+      - name: pub.dev dry-run (tasker_nlp)
+        run: dart pub publish --dry-run
+        working-directory: packages/tasker_nlp
+
+  android-release:
+    runs-on: ubuntu-latest
+    needs: test-and-package
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build APK release
+        run: flutter build apk --release
+
+      - name: Build App Bundle release
+        run: flutter build appbundle --release
+
+  ios-release:
+    runs-on: macos-latest
+    needs: test-and-package
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --no-codesign --release

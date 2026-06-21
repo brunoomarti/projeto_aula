@@ -23,6 +23,23 @@ class GeocodeService {
   static DateTime? _lastSearchRequest;
   static String _sessionToken = _uuid.v4();
 
+  static final http.Client _defaultClient = http.Client();
+
+  /// Substitui o cliente HTTP nos testes (`package:http/testing.dart`).
+  @visibleForTesting
+  static http.Client? httpClientOverride;
+
+  static http.Client get _http =>
+      httpClientOverride ?? _defaultClient;
+
+  @visibleForTesting
+  static void resetForTesting() {
+    httpClientOverride = null;
+    _cache.clear();
+    _lastSearchRequest = null;
+    _startNewSession();
+  }
+
   static Map<String, String> _headers({required String fieldMask}) => {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': EnvConfig.googlePlacesApiKey,
@@ -34,6 +51,11 @@ class GeocodeService {
   }
 
   static Future<String?> getAddressCached(TaskLocation location) async {
+    final persisted = location.formattedAddress?.trim();
+    if (persisted != null && persisted.isNotEmpty) {
+      return persisted;
+    }
+
     if (!EnvConfig.isGoogleConfigured) return null;
 
     final key =
@@ -49,6 +71,16 @@ class GeocodeService {
     );
     _cache[key] = address;
     return address;
+  }
+
+  /// Resolve endereço via API apenas quando ainda não está salvo na [TaskLocation].
+  static Future<TaskLocation> enrichLocationIfNeeded(TaskLocation location) async {
+    if (location.hasPersistedAddress) return location;
+
+    final address = await getAddressCached(location);
+    if (address == null || address.trim().isEmpty) return location;
+
+    return location.copyWith(formattedAddress: address.trim());
   }
 
   /// Autocomplete (Places API New) — endereços **e** estabelecimentos.
@@ -185,7 +217,7 @@ class GeocodeService {
     final uri = Uri.https('places.googleapis.com', '/v1/places:autocomplete');
 
     try {
-      final response = await http
+      final response = await _http
           .post(
             uri,
             headers: _headers(
@@ -265,7 +297,7 @@ class GeocodeService {
     );
 
     try {
-      final response = await http
+      final response = await _http
           .get(
             uri,
             headers: _headers(
@@ -307,7 +339,7 @@ class GeocodeService {
     );
 
     try {
-      final response = await http
+      final response = await _http
           .get(uri)
           .timeout(const Duration(seconds: 10));
 

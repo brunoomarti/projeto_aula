@@ -86,7 +86,16 @@ class MagicTaskBuilder {
             ? rawTitle
             : (parsed.title.isNotEmpty ? parsed.title : normalized),
       );
-      if (placeExtract != null) {
+      if (placeExtract != null &&
+          looksLikeSingleErrandAction(normalized)) {
+        final actionTitle = extractCoreActionTitlePTBR(
+          normalized,
+          place: placeExtract,
+        );
+        if (actionTitle != null && actionTitle.trim().isNotEmpty) {
+          title = actionTitle.trim();
+        }
+      } else if (placeExtract != null) {
         title = _capFirst(
           enrichTitleWithPlaceDestination(
             title: title,

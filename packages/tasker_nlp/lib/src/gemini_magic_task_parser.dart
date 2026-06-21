@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 
+import 'extract_action_title_pt_br.dart';
 import 'extract_errand_list_pt_br.dart';
 import 'extract_place_pt_br.dart';
 import 'extract_when_pt_br.dart';
@@ -73,6 +74,7 @@ abstract final class GeminiMagicTaskParser {
     required DateTime referenceDate,
     required String apiKey,
     String geminiModel = 'gemini-2.5-flash',
+    http.Client? httpClient,
   }) async {
     if (apiKey.trim().isEmpty) {
       throw GeminiMagicTaskParserException('GEMINI_API_KEY não configurada.');
@@ -87,7 +89,8 @@ abstract final class GeminiMagicTaskParser {
       '?key=${Uri.encodeComponent(apiKey.trim())}',
     );
 
-    final response = await http
+    final client = httpClient ?? http.Client();
+    final response = await client
         .post(
           uri,
           headers: const {'Content-Type': 'application/json'},
@@ -139,7 +142,9 @@ abstract final class GeminiMagicTaskParser {
     final errand = extractErrandListPTBR(transcript, place: place);
 
     final colloquialTime = _inferColloquialTimePtBr(transcript);
-    final timeHHMM = when.timeHHMM ?? colloquialTime ?? gemini.timeHHMM;
+    final periodTime = inferPeriodTimePTBR(transcript)?.time;
+    final timeHHMM =
+        when.timeHHMM ?? colloquialTime ?? periodTime ?? gemini.timeHHMM;
 
     final explicitDate = parseExplicitDate(transcript, ref)?.date;
     final relativeDate = parseRelativeDate(transcript, ref)?.date;
@@ -229,10 +234,20 @@ abstract final class GeminiMagicTaskParser {
         (errand?.parentTitle != null &&
             errandItemsLookLikeActions(errandItems));
     if (!isActionListTitle && placeSearchQuery != null) {
-      title = enrichTitleWithPlaceDestination(
-        title: title,
-        placeQuery: placeSearchQuery,
-      );
+      if (errandItems.isEmpty && looksLikeSingleErrandAction(transcript)) {
+        final actionTitle = extractCoreActionTitlePTBR(
+          transcript,
+          place: place,
+        );
+        if (actionTitle != null && actionTitle.trim().isNotEmpty) {
+          title = actionTitle.trim();
+        }
+      } else {
+        title = enrichTitleWithPlaceDestination(
+          title: title,
+          placeQuery: placeSearchQuery,
+        );
+      }
     }
     title = enrichTitleWithTranscriptContext(
       title: title,
@@ -304,7 +319,7 @@ Extraia uma tarefa e retorne SOMENTE JSON válido (sem markdown):
 }
 
 REGRAS CRÍTICAS
-- "title": núcleo da ação COM categoria de destino quando o usuário foi a um local específico mas não repetiu o tipo no núcleo. Ex.: "levar gata no ama hospital veterinário" → "Levar gata ao veterinário" (NÃO coloque o nome próprio do estabelecimento no title). NUNCA coloque no title: hora, data, números de hora, "amanhã", "tarde", "manhã", nem os itens de uma lista.
+- "title": núcleo da ação SEM local, SEM horário, SEM período do dia. Ex.: "comprar pão na Digrano no início da noite" → title: "Comprar pão" (NÃO inclua "Digrano", "início", "noite"). Para local nomeado (padaria, mercado, loja), o nome vai em placeSearchQuery/placeDisplayName, não no title.
 - LISTA DE COMPRAS (obrigatório): quando houver 2+ produtos distintos após "comprar/pegar/buscar" e NÃO houver local nomeado, o title deve ser categoria genérica ("Lista de compras", "Compras no mercado" se houver tipo genérico). NUNCA use um produto isolado ou fragmento ("feijão e") como title — os produtos vão só em errandItems.
 - PRODUTO ÚNICO (obrigatório): frases como "comprar camisa do Brasil", "comprar um tênis branco", "pegar par de tênis", "buscar remédio para dor de cabeça" são UM item só — vão no title ("Comprar tênis branco"), errandItems deve ser []. NUNCA separe adjetivos de cor/tamanho ("branco", "azul", "integral") nem preposições ("do", "da", "de") como itens da lista.
 - CONTEXTO DE SERVIÇO (obrigatório): use o local para interpretar termos ambíguos. Ex.: "Detran" + "carteira" = carteira de motorista / CNH, não carteira comum.
@@ -317,6 +332,14 @@ REGRAS CRÍTICAS
 - "dateYmd": converta expressões relativas para data ISO. "amanhã" = dia seguinte à referência. "dia 29" = dia 29 do mês (mês atual ou próximo). Se NÃO houver data na frase → null (não use a data de referência como dateYmd).
 - Data de referência do calendário (só para calcular "hoje/amanhã/depois de amanhã"): $referenceDateYmd
 - "timeHHMM": hora explícita em 24h. NÃO use 15:00 só porque apareceu "tarde" se houver hora por extenso ou construção numérica.
+- PERÍODOS DO DIA (obrigatório — use estes valores, não 23:59 genérico para "noite"):
+  • "início/comecinho/princípio da noite" → 18:00 (entardecer, pôr do sol, quando escurece → 18:00)
+  • "fim/final da noite" → 22:00; "meio da noite" (expressão coloquial, não meia-noite) → 21:00
+  • "início da manhã" / "cedinho" → 07:00; "fim da manhã" → 11:30
+  • "início da tarde" → 13:30; "meio da tarde" / "de tarde" / "à tarde" → 15:00; "fim da tarde" → 17:30
+  • "hora do jantar" → 19:00; "hora do lanche" → 16:00; "hora do café" → 08:00
+  • "de noite" / "à noite" / "noite" (sem qualificador) → 20:00 (não 23:59)
+  • "final do dia" → 23:59
 - Horas por extenso (obrigatório):
   • "meio-dia" / "meio dia" → 12:00
   • "meia-noite" → 00:00
@@ -388,6 +411,18 @@ Saída: {"title":"Treino de futsal","dateYmd":null,"timeHHMM":"20:00","placeSear
 Entrada: "aula de natação amanhã 7h"
 Saída: {"title":"Aula de natação","dateYmd":"<amanhã ISO>","timeHHMM":"07:00","placeSearchQuery":null,"placeDisplayName":null,"placeSkipGeocoding":false,"errandItems":[],"iconKey":"swimming"}
 
+Entrada: "comprar pao na digrano no inicio da noite"
+Saída: {"title":"Comprar pão","dateYmd":null,"timeHHMM":"18:00","placeSearchQuery":"Digrano","placeDisplayName":"Digrano","placeSkipGeocoding":false,"errandItems":[],"iconKey":"market"}
+
+Entrada: "pegar remédio na farmácia Central quando escurece"
+Saída: {"title":"Pegar remédio","dateYmd":null,"timeHHMM":"18:00","placeSearchQuery":"Farmácia Central","placeDisplayName":"Farmácia Central","placeSkipGeocoding":false,"errandItems":[],"iconKey":"health"}
+
+Entrada: "encontro com João no fim da tarde"
+Saída: {"title":"Encontro com João","dateYmd":null,"timeHHMM":"17:30","placeSearchQuery":null,"placeDisplayName":null,"placeSkipGeocoding":false,"errandItems":[],"iconKey":"people"}
+
+Entrada: "jantar no Outback horário de jantar"
+Saída: {"title":"Jantar","dateYmd":null,"timeHHMM":"19:00","placeSearchQuery":"Outback","placeDisplayName":"Outback","placeSkipGeocoding":false,"errandItems":[],"iconKey":"food"}
+
 Texto do usuário (interprete a intenção mesmo se estiver mal escrito ou sem pontuação):
 "$transcript"
 ''';
@@ -397,14 +432,27 @@ Texto do usuário (interprete a intenção mesmo se estiver mal escrito ou sem p
     String? geminiPlace,
     ExtractPlaceResult? localPlace,
   }) {
-    final raw = geminiPlace ?? localPlace?.searchQuery;
-    if (raw == null || raw.trim().isEmpty) return null;
-    // Expressões coloquiais («rua», «cidade», «rolê»…) não são lugares.
-    if (isColloquialNonPlace(raw)) return null;
-    return raw.trim();
+    final fromGemini = geminiPlace?.trim();
+    if (fromGemini != null &&
+        fromGemini.isNotEmpty &&
+        !isColloquialNonPlace(fromGemini)) {
+      return fromGemini;
+    }
+
+    final fromLocal = localPlace?.searchQuery.trim();
+    if (fromLocal != null &&
+        fromLocal.isNotEmpty &&
+        !isColloquialNonPlace(fromLocal)) {
+      return fromLocal;
+    }
+    return null;
   }
 
-  static String? _inferColloquialTimePtBr(String text) => parseTime(text)?.time;
+  static String? _inferColloquialTimePtBr(String text) {
+    final explicit = parseTime(text);
+    if (explicit != null) return explicit.time;
+    return inferTimeByContext(text)?.time;
+  }
 
   static List<String> _resolveErrandItems({
     required List<String> geminiItems,
@@ -460,10 +508,13 @@ Texto do usuário (interprete a intenção mesmo se estiver mal escrito ou sem p
   static bool _titleLooksContaminated(String title) {
     final low = normPT(title);
     if (low.isEmpty) return true;
-    return parseTime(title) != null ||
-        RegExp(
-          r'\b(tarde|manha|noite|madrugada|amanha|hoje|meio|meia)\b',
-        ).hasMatch(low);
+    if (parseTime(title) != null || inferPeriodTimePTBR(title) != null) {
+      return true;
+    }
+    return RegExp(
+      r'\b(tarde|manha|noite|madrugada|amanha|hoje|meio|meia|inicio|comeco|'
+      r'comecinho|principio|fim|final|entardecer|anoitecer|crepusculo|jantar)\b',
+    ).hasMatch(low);
   }
 
   /// Remove frases de hora falada («duas da tarde», «meio-dia», etc.).
@@ -510,6 +561,7 @@ Texto do usuário (interprete a intenção mesmo se estiver mal escrito ou sem p
     t = stripTemporalResidualPT(t);
     if (hasTime) {
       t = stripColloquialTimePhrasesPT(t);
+      t = stripPeriodTimePhrasesPT(t);
     }
     t = finalizeTitlePT(smartTitleRepairPT(t));
 

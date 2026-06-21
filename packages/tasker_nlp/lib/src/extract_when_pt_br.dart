@@ -404,9 +404,12 @@ TimeParseResult? inferTimeByContext(String text, [DateTime? now]) {
   if ((m = RegExp(r'(final|fim)\s+da?\s+tarde').firstMatch(low)) != null) {
     return TimeParseResult(time: '17:30', match: m!.group(0)!);
   }
-  if ((m = RegExp(r'\bnoite\b|de\s+noite|a\s+noite').firstMatch(low)) != null) {
-    return TimeParseResult(time: '23:59', match: m!.group(0)!);
+
+  final period = inferPeriodTimePTBR(text);
+  if (period != null) {
+    return period;
   }
+
   if ((m = RegExp(r'\btarde\b').firstMatch(low)) != null) {
     return TimeParseResult(time: '15:00', match: m!.group(0)!);
   }
@@ -758,8 +761,186 @@ String stripSpokenTimePhrasesPT(String s) {
 }
 
 bool _isTemporalWord(String w) => RegExp(
-  r'^(hoje|amanha|depois|agora|cedo|tarde|noite|manha|madrugada|almoco)$',
+  r'^(hoje|amanha|depois|agora|cedo|tarde|noite|manha|madrugada|almoco|'
+  r'inicio|comeco|comecinho|principio|fim|final|entardecer|anoitecer|'
+  r'crepusculo|jantar|lanche|cedinho)$',
 ).hasMatch(w);
+
+/// Padrões de período do dia — do mais específico ao mais genérico.
+final List<(RegExp pattern, String time)> _periodTimeRules = [
+  (
+    RegExp(
+      r'\b(?:inicio|comeco|comecinho|principio|comecando)\s+(?:da|de|do)\s+noite\b',
+      caseSensitive: false,
+    ),
+    '18:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:fim|final)\s+(?:da|de|do)\s+noite\b',
+      caseSensitive: false,
+    ),
+    '22:00',
+  ),
+  (
+    RegExp(
+      r'\bmeio\s+(?:da|de|do)\s+noite\b',
+      caseSensitive: false,
+    ),
+    '21:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:entardecer|anoitecer|por\s+do\s+sol|p[oô]r\s+do\s+sol|'
+      r'quando\s+(?:o\s+)?sol\s+(?:se\s+)?p[oõ]e|'
+      r'(?:quando|logo\s+que)\s+escurece|crepusculo|crep[uú]sculo)\b',
+      caseSensitive: false,
+    ),
+    '18:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:inicio|comeco|comecinho|principio)\s+(?:da|de|do)\s+manha\b',
+      caseSensitive: false,
+    ),
+    '07:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:fim|final)\s+(?:da|de|do)\s+manha\b',
+      caseSensitive: false,
+    ),
+    '11:30',
+  ),
+  (
+    RegExp(
+      r'\b(?:inicio|comeco|comecinho|principio)\s+(?:da|de|do)\s+tarde\b',
+      caseSensitive: false,
+    ),
+    '13:30',
+  ),
+  (
+    RegExp(
+      r'\b(?:fim|final)\s+(?:da|de|do)\s+tarde\b',
+      caseSensitive: false,
+    ),
+    '17:30',
+  ),
+  (
+    RegExp(
+      r'\bmeio\s+(?:da|de|do)\s+dia\b',
+      caseSensitive: false,
+    ),
+    '12:00',
+  ),
+  (
+    RegExp(
+      r'\bmeio\s+(?:da|de|do)\s+tarde\b',
+      caseSensitive: false,
+    ),
+    '15:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:horario|hora)\s+(?:do|de)\s+jantar\b',
+      caseSensitive: false,
+    ),
+    '19:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:horario|hora)\s+(?:do|de)\s+lanche\b',
+      caseSensitive: false,
+    ),
+    '16:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:horario|hora)\s+(?:do|de)\s+cafe(?:\s+da\s+manha)?\b',
+      caseSensitive: false,
+    ),
+    '08:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:bem\s+)?cedinho\b',
+      caseSensitive: false,
+    ),
+    '07:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:de|a|à|ao)\s+tarde\b',
+      caseSensitive: false,
+    ),
+    '15:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:bem\s+)?tarde\b(?!\s+(?:da|de|do)\s+(?:manha|tarde|noite))',
+      caseSensitive: false,
+    ),
+    '18:00',
+  ),
+  (
+    RegExp(
+      r'\b(?:de|a|à|na|no)\s+noite\b',
+      caseSensitive: false,
+    ),
+    '20:00',
+  ),
+  (
+    RegExp(
+      r'\bnoite\b',
+      caseSensitive: false,
+    ),
+    '20:00',
+  ),
+];
+
+/// Inferência de horário por período do dia («início da noite», «entardecer»…).
+TimeParseResult? inferPeriodTimePTBR(String text) {
+  final low = normPT(text);
+  RegExpMatch? best;
+  String? bestTime;
+
+  for (final (pattern, time) in _periodTimeRules) {
+    final m = pattern.firstMatch(low);
+    if (m == null) continue;
+
+    if (best == null ||
+        m.start < best.start ||
+        (m.start == best.start && m.end > best.end)) {
+      best = m;
+      bestTime = time;
+    }
+  }
+
+  if (best == null || bestTime == null) return null;
+  return TimeParseResult(time: bestTime, match: best.group(0)!);
+}
+
+/// Remove expressões de período do dia (limpeza de título).
+String stripPeriodTimePhrasesPT(String text) {
+  if (text.isEmpty) return text;
+  var t = ' ${normPT(text)} ';
+  for (final (pattern, _) in _periodTimeRules) {
+    t = t.replaceAll(pattern, ' ');
+  }
+  t = t.replaceAll(
+    RegExp(
+      r'\b(?:inicio|comeco|comecinho|principio|fim|final|meio)\s+'
+      r'(?:da|de|do)\s+(?:manha|tarde|noite|dia)\b',
+      caseSensitive: false,
+    ),
+    ' ',
+  );
+  t = t.replaceAll(
+    RegExp(r'\b(?:entardecer|anoitecer|crepusculo)\b', caseSensitive: false),
+    ' ',
+  );
+  return t.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
 
 /// Limpador de título semântico (versão robusta).
 String cleanTitlePT(
@@ -1161,6 +1342,50 @@ String stripTemporalResidualPT(String s) {
   return t;
 }
 
+/// Remove menção a local do título quando o transcript cita «na/no X».
+String stripPlaceMentionFromTitle(String title, String transcript) {
+  if (title.trim().isEmpty) return title;
+  final low = normPT(transcript);
+
+  final patterns = [
+    RegExp(
+      r'\s+(?:na|no|nem|em|ao|à|aos|nas|nos)\s+'
+      r'([\p{L}\p{N}][\p{L}\p{N}\s\-\.]{1,35})'
+      r'(?:\s+(?:no|na|em)\s+(?:inicio|comeco|comecinho|principio|fim)\s+'
+      r'(?:da|de|do)\s+(?:manha|tarde|noite|madrugada|almoco))?',
+      unicode: true,
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'\s+(?:na|no|nem|em|ao|à)\s+'
+      r'((?:padaria|farmacia|mercado|supermercado|loja|shopping|restaurante|'
+      r'bar|posto|academia|hospital|clinica)\s+[\p{L}\p{N}][\p{L}\p{N}\s\-]{0,30})',
+      unicode: true,
+      caseSensitive: false,
+    ),
+  ];
+
+  var t = title;
+  for (final pattern in patterns) {
+    final m = pattern.firstMatch(low);
+    if (m == null) continue;
+    final capture = m.group(1)?.trim();
+    if (capture == null || capture.length < 2) continue;
+    t = removePhraseInsensitive(t, capture);
+    for (final part in capture.split(RegExp(r'\s+'))) {
+      if (part.length >= 3) {
+        t = removePhraseInsensitive(t, part);
+      }
+    }
+  }
+
+  t = t.replaceAll(
+    RegExp(r'\b(?:no|na|nem|em|ao|à|aos|nas|nos)\s*$', caseSensitive: false),
+    '',
+  );
+  return t.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
 /// Extrai data (YYYY-MM-DD), hora (HH:mm) e um título limpo do transcript.
 ExtractWhenResult extractWhenPTBR(String transcript, [DateTime? now]) {
   final ref = now ?? DateTime.now();
@@ -1209,6 +1434,8 @@ ExtractWhenResult extractWhenPTBR(String transcript, [DateTime? now]) {
 
   titleSource = stripSpokenTimePhrasesPT(titleSource);
 
+  titleSource = stripPeriodTimePhrasesPT(titleSource);
+
   titleSource = stripTemporalResidualPT(titleSource);
 
   final cleaned = cleanTitlePT(
@@ -1218,9 +1445,13 @@ ExtractWhenResult extractWhenPTBR(String transcript, [DateTime? now]) {
     titleCase: false,
   );
 
-  final finalTitle = finalizeTitlePT(
+  var finalTitle = finalizeTitlePT(
     smartTitleRepairPT(cleaned.isNotEmpty ? cleaned : original),
   );
+
+  finalTitle = stripPlaceMentionFromTitle(finalTitle, original);
+  finalTitle = stripPeriodTimePhrasesPT(finalTitle);
+  finalTitle = finalizeTitlePT(smartTitleRepairPT(finalTitle));
 
   return ExtractWhenResult(
     title: finalTitle,

@@ -23,6 +23,7 @@ class TaskLocationPickerMap extends StatefulWidget {
     super.key,
     this.embedded = false,
     this.initialLocation,
+    this.onLocationChanged,
   });
 
   /// Sem título/descrição duplicados (usado dentro de um card na tela).
@@ -31,6 +32,9 @@ class TaskLocationPickerMap extends StatefulWidget {
   /// Centro inicial do mapa (ex.: edição de tarefa com local salvo).
   final TaskLocation? initialLocation;
 
+  /// Chamado quando o usuário escolhe um lugar ou move o mapa.
+  final ValueChanged<TaskLocation?>? onLocationChanged;
+
   @override
   State<TaskLocationPickerMap> createState() => TaskLocationPickerMapState();
 }
@@ -38,22 +42,72 @@ class TaskLocationPickerMap extends StatefulWidget {
 class TaskLocationPickerMapState extends State<TaskLocationPickerMap> {
   final _mapKey = GlobalKey<_LocationMapSurfaceState>();
   String? _selectedPlaceName;
+  TaskLocation? _placeCacheFromSearch;
+  bool _autoGpsEnabled = true;
 
   @override
   void initState() {
     super.initState();
-    _selectedPlaceName = widget.initialLocation?.name;
+    final initial = widget.initialLocation;
+    _selectedPlaceName = initial?.name;
+    if (initial != null && _hasValidCoordinates(initial)) {
+      _placeCacheFromSearch = initial;
+    }
   }
 
-  /// Lê o pin (centro do mapa) só quando necessário — ex.: ao salvar a tarefa.
-  TaskLocation? get selectedLocation {
-    final coords = _mapKey.currentState?.selectedLocation;
-    if (coords == null) return null;
+  /// Lê o pin (centro do mapa) ou o lugar escolhido na busca Places.
+  TaskLocation? get selectedLocation => resolveSelectedLocation(
+        placeCacheFromSearch: _placeCacheFromSearch,
+        mapCenter: _mapKey.currentState?.selectedLocation,
+        selectedPlaceName: _selectedPlaceName,
+      );
+
+  @visibleForTesting
+  static TaskLocation? resolveSelectedLocation({
+    required TaskLocation? placeCacheFromSearch,
+    required TaskLocation? mapCenter,
+    required String? selectedPlaceName,
+  }) {
+    if (placeCacheFromSearch != null &&
+        _hasValidCoordinates(placeCacheFromSearch)) {
+      if (mapCenter == null ||
+          _coordinatesNear(placeCacheFromSearch, mapCenter)) {
+        return placeCacheFromSearch.copyWith(
+          lat: mapCenter?.lat ?? placeCacheFromSearch.lat,
+          lng: mapCenter?.lng ?? placeCacheFromSearch.lng,
+          name: selectedPlaceName ?? placeCacheFromSearch.name,
+        );
+      }
+    }
+
+    if (mapCenter == null) return null;
+
     return TaskLocation(
-      lat: coords.lat,
-      lng: coords.lng,
-      name: _selectedPlaceName,
+      lat: mapCenter.lat,
+      lng: mapCenter.lng,
+      name: selectedPlaceName,
     );
+  }
+
+  static bool _hasValidCoordinates(TaskLocation loc) {
+    return loc.lat != 0 || loc.lng != 0;
+  }
+
+  static bool _coordinatesNear(TaskLocation a, TaskLocation b) {
+    return (a.lat - b.lat).abs() < 0.0001 && (a.lng - b.lng).abs() < 0.0001;
+  }
+
+  void _onUserMovedMap() {
+    if (_placeCacheFromSearch == null) {
+      _notifyLocationChanged();
+      return;
+    }
+    setState(() => _placeCacheFromSearch = null);
+    _notifyLocationChanged();
+  }
+
+  void _notifyLocationChanged() {
+    widget.onLocationChanged?.call(selectedLocation);
   }
 
   Future<void> recenterOnDevice() =>
@@ -63,11 +117,15 @@ class TaskLocationPickerMapState extends State<TaskLocationPickerMap> {
   void refreshAfterLayout() => _mapKey.currentState?.refreshAfterLayout();
 
   void _onSearchSelected(AddressSuggestion suggestion) {
+    final loc = suggestion.toTaskLocation();
     setState(() {
-      _selectedPlaceName =
-          suggestion.location.name ?? suggestion.establishmentName;
+      _autoGpsEnabled = false;
+      _placeCacheFromSearch = loc;
+      _selectedPlaceName = loc.name ?? suggestion.establishmentName;
     });
-    _mapKey.currentState?.moveTo(suggestion.location);
+    _mapKey.currentState?.cancelAutoGps();
+    _mapKey.currentState?.moveTo(loc);
+    _notifyLocationChanged();
   }
 
   @override
@@ -95,6 +153,8 @@ class TaskLocationPickerMapState extends State<TaskLocationPickerMap> {
         _LocationMapSurface(
           key: _mapKey,
           initialLocation: widget.initialLocation,
+          autoLocateOnOpen: _autoGpsEnabled,
+          onUserMovedMap: _onUserMovedMap,
         ),
         const SizedBox(height: 10),
         _AddressSearchField(
@@ -108,9 +168,16 @@ class TaskLocationPickerMapState extends State<TaskLocationPickerMap> {
 
 /// Mapa isolado — arrastar/zoom não disparam callbacks nem rebuilds extras.
 class _LocationMapSurface extends StatefulWidget {
-  const _LocationMapSurface({super.key, this.initialLocation});
+  const _LocationMapSurface({
+    super.key,
+    this.initialLocation,
+    this.autoLocateOnOpen = true,
+    this.onUserMovedMap,
+  });
 
   final TaskLocation? initialLocation;
+  final bool autoLocateOnOpen;
+  final VoidCallback? onUserMovedMap;
 
   @override
   State<_LocationMapSurface> createState() => _LocationMapSurfaceState();
@@ -128,6 +195,9 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
   final _mapController = MapController();
   bool _mapReady = false;
   bool _gpsLoading = false;
+  bool _suppressMoveEvent = false;
+  TaskLocation? _pendingMoveTarget;
+  bool _gpsCancelled = false;
 
   LatLng get _startCenter {
     final loc = widget.initialLocation ?? _defaultCenter;
@@ -137,10 +207,20 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
   @override
   void initState() {
     super.initState();
-    if (widget.initialLocation == null) {
+    if (widget.initialLocation == null && widget.autoLocateOnOpen) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadDeviceLocation();
       });
+    }
+  }
+
+  void cancelAutoGps() => _gpsCancelled = true;
+
+  @override
+  void didUpdateWidget(covariant _LocationMapSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.autoLocateOnOpen && oldWidget.autoLocateOnOpen) {
+      cancelAutoGps();
     }
   }
 
@@ -159,7 +239,30 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
 
   Future<void> recenterOnDevice() => _loadDeviceLocation();
 
-  void moveTo(TaskLocation loc) => _moveMapTo(loc, resetZoom: true);
+  void moveTo(TaskLocation loc) {
+    if (!_mapReady) {
+      _pendingMoveTarget = loc;
+      return;
+    }
+    _runProgrammaticMove(() {
+      _moveMapTo(loc, resetZoom: true);
+    });
+  }
+
+  void _runProgrammaticMove(VoidCallback move) {
+    _suppressMoveEvent = true;
+    move();
+    Future<void>.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) _suppressMoveEvent = false;
+    });
+  }
+
+  void _handleMapEvent(MapEvent event) {
+    if (!_mapReady || _suppressMoveEvent) return;
+    if (event is MapEventMoveEnd) {
+      widget.onUserMovedMap?.call();
+    }
+  }
 
   void refreshAfterLayout() {
     if (!_mapReady) return;
@@ -171,28 +274,37 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
     if (!mounted) return;
     setState(() => _mapReady = true);
     refreshAfterLayout();
+    final pending = _pendingMoveTarget;
+    if (pending != null) {
+      _pendingMoveTarget = null;
+      moveTo(pending);
+    }
   }
 
   Future<void> _loadDeviceLocation() async {
-    if (!mounted) return;
+    if (!mounted || _gpsCancelled || !widget.autoLocateOnOpen) return;
     setState(() => _gpsLoading = true);
 
     final quick = await LocationService.getQuickLocationForMap();
-    if (quick != null && mounted) {
-      _moveMapTo(quick, resetZoom: true);
+    if (_gpsCancelled || !mounted) return;
+    if (quick != null) {
+      _runProgrammaticMove(() => _moveMapTo(quick, resetZoom: true));
     }
 
     final refined = await LocationService.refineLocationForMap();
-    if (!mounted) return;
+    if (_gpsCancelled || !mounted) return;
     setState(() => _gpsLoading = false);
 
     if (refined != null) {
-      _moveMapTo(refined, resetZoom: true);
+      _runProgrammaticMove(() => _moveMapTo(refined, resetZoom: true));
     }
   }
 
   void _moveMapTo(TaskLocation loc, {required bool resetZoom}) {
-    if (!_mapReady) return;
+    if (!_mapReady) {
+      _pendingMoveTarget = loc;
+      return;
+    }
     final zoom = resetZoom ? _initialZoom : _mapController.camera.zoom;
     _mapController.move(LatLng(loc.lat, loc.lng), zoom);
   }
@@ -237,6 +349,7 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
                                 : InteractiveFlag.none,
                           ),
                           onMapReady: _onMapReady,
+                          onMapEvent: _handleMapEvent,
                         ),
                         children: [
                           TileLayer(

@@ -39,6 +39,8 @@ class AddressSuggestion {
       lat: location.lat,
       lng: location.lng,
       name: placeName,
+      formattedAddress: location.formattedAddress,
+      placeId: placeId ?? location.placeId,
     );
   }
 
@@ -82,7 +84,13 @@ class AddressSuggestion {
     return AddressSuggestion(
       displayName: displayName.isNotEmpty ? displayName : shortLabel,
       shortLabel: shortLabel.isNotEmpty ? shortLabel : displayName,
-      location: TaskLocation(lat: lat, lng: lng, name: placeName),
+      location: TaskLocation(
+        lat: lat,
+        lng: lng,
+        name: placeName,
+        formattedAddress: formatted.isNotEmpty ? formatted : null,
+        placeId: id,
+      ),
       categoryLabel: categoryLabel,
       placeId: id,
     );

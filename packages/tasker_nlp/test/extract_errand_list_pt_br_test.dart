@@ -233,14 +233,24 @@ void main() {
       );
     });
 
-    test('coalesceErrandItems une fragmentos do gemini', () {
-      expect(
-        coalesceErrandItems(
-          ['camisa', 'do', 'brasil'],
-          sourceChunk: 'camisa do brasil',
-        ),
-        ['camisa do brasil'],
+    test('produto unico com local nomeado usa acao no titulo', () {
+      const text = 'comprar pao na digrano no inicio da noite';
+      final place = extractPlacePTBR(text);
+      final errand = extractErrandListPTBR(text, place: place);
+
+      expect(place, isNotNull);
+      expect(errand, isNotNull);
+      expect(errand!.items, ['pao']);
+
+      final title = resolveErrandDisplayTitle(
+        primaryTitle: '',
+        place: place,
+        errand: errand,
+        errandItems: errand.items,
       );
+      expect(title.toLowerCase(), contains('comprar'));
+      expect(title.toLowerCase(), contains('pao'));
+      expect(title.toLowerCase(), isNot(contains('digrano')));
     });
   });
 }

@@ -104,6 +104,15 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   }
 
   Future<void> _resolveAddress(TaskLocation loc) async {
+    final persisted = loc.formattedAddress?.trim();
+    if (persisted != null && persisted.isNotEmpty) {
+      setState(() {
+        _address = persisted;
+        _loadingAddress = false;
+      });
+      return;
+    }
+
     setState(() => _loadingAddress = true);
     try {
       final address = await GeocodeService.getAddressCached(loc);
@@ -112,6 +121,11 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         _address = address;
         _loadingAddress = false;
       });
+      if (address != null && address.trim().isNotEmpty) {
+        await context
+            .read<TaskStore>()
+            .persistTaskLocationAddress(_currentTask().id, address);
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {

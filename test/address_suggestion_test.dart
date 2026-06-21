@@ -15,7 +15,9 @@ void main() {
 
       expect(suggestion.establishmentName, 'Extra Bom');
       expect(suggestion.location.name, 'Extra Bom');
+      expect(suggestion.location.formattedAddress, 'Av. Jerônimo Monteiro, 1000 - Colatina, ES');
       expect(suggestion.toTaskLocation().name, 'Extra Bom');
+      expect(suggestion.toTaskLocation().formattedAddress, isNotNull);
     });
 
     test('não define nome para endereço de rua', () {

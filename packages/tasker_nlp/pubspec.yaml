@@ -1,7 +1,11 @@
 name: tasker_nlp
-description: NLP em português para interpretação de tarefas (magic input).
-publish_to: 'none'
+description: >
+  NLP em português (PT-BR) para interpretar texto livre e extrair título,
+  data, hora, local e listas de tarefas — usado no magic input do app Tasker.
 version: 1.0.0
+repository: https://github.com/brunoomarti/projeto_aula/tree/main/packages/tasker_nlp
+homepage: https://github.com/brunoomarti/projeto_aula
+issue_tracker: https://github.com/brunoomarti/projeto_aula/issues
 
 environment:
   sdk: ^3.11.5

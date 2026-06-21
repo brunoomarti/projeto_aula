@@ -1,6 +1,7 @@
 /// Package interno de NLP em português para o Tasker.
 library;
 
+export 'src/extract_action_title_pt_br.dart';
 export 'src/extract_errand_list_pt_br.dart';
 export 'src/extract_place_pt_br.dart';
 export 'src/extract_when_pt_br.dart';

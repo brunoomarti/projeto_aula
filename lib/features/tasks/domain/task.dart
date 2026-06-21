@@ -7,6 +7,8 @@ class TaskLocation {
     required this.lat,
     required this.lng,
     this.name,
+    this.formattedAddress,
+    this.placeId,
   });
 
   final double lat;
@@ -15,11 +17,35 @@ class TaskLocation {
   /// Nome do estabelecimento mencionado pelo usuário (ex.: «Ama Hospital Veterinário»).
   final String? name;
 
-  TaskLocation copyWith({double? lat, double? lng, String? name}) {
+  /// Endereço legível resolvido via Places/Geocoding — persistido na tarefa para evitar novas requisições.
+  final String? formattedAddress;
+
+  /// ID do lugar na Google Places API (quando disponível).
+  final String? placeId;
+
+  /// Endereço já resolvido e salvo no dispositivo/nuvem com a tarefa.
+  bool get hasPersistedAddress {
+    final value = formattedAddress?.trim();
+    return value != null && value.isNotEmpty;
+  }
+
+  TaskLocation copyWith({
+    double? lat,
+    double? lng,
+    String? name,
+    String? formattedAddress,
+    String? placeId,
+    bool clearFormattedAddress = false,
+    bool clearPlaceId = false,
+  }) {
     return TaskLocation(
       lat: lat ?? this.lat,
       lng: lng ?? this.lng,
       name: name ?? this.name,
+      formattedAddress: clearFormattedAddress
+          ? null
+          : (formattedAddress ?? this.formattedAddress),
+      placeId: clearPlaceId ? null : (placeId ?? this.placeId),
     );
   }
 
@@ -45,11 +71,22 @@ class TaskLocation {
     final name = rawName is String && rawName.trim().isNotEmpty
         ? rawName.trim()
         : null;
+    final rawAddress = json['formatted_address'] ?? json['formattedAddress'];
+    final formattedAddress =
+        rawAddress is String && rawAddress.trim().isNotEmpty
+            ? rawAddress.trim()
+            : null;
+    final rawPlaceId = json['place_id'] ?? json['placeId'];
+    final placeId = rawPlaceId is String && rawPlaceId.trim().isNotEmpty
+        ? rawPlaceId.trim()
+        : null;
 
     return TaskLocation(
       lat: (lat is num) ? lat.toDouble() : double.parse('$lat'),
       lng: (lng is num) ? lng.toDouble() : double.parse('$lng'),
       name: name,
+      formattedAddress: formattedAddress,
+      placeId: placeId,
     );
   }
 
@@ -57,7 +94,25 @@ class TaskLocation {
         'lat': lat,
         'lng': lng,
         if (name != null && name!.trim().isNotEmpty) 'name': name!.trim(),
+        if (formattedAddress != null && formattedAddress!.trim().isNotEmpty)
+          'formatted_address': formattedAddress!.trim(),
+        if (placeId != null && placeId!.trim().isNotEmpty)
+          'place_id': placeId!.trim(),
       };
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is TaskLocation &&
+        other.lat == lat &&
+        other.lng == lng &&
+        other.name == name &&
+        other.formattedAddress == formattedAddress &&
+        other.placeId == placeId;
+  }
+
+  @override
+  int get hashCode => Object.hash(lat, lng, name, formattedAddress, placeId);
 
   /// Nome do estabelecimento + endereço resolvido (sem duplicar o nome).
   static String formatAddressLine({

@@ -58,7 +58,7 @@ class AuthRepository {
 
     final trimmedName = displayName.trim();
     if (trimmedName.isNotEmpty) {
-      await user.updateProfile(displayName: trimmedName);
+      await user.updateDisplayName(trimmedName);
       await user.reload();
       user = _firebaseAuth.currentUser ?? user;
     }
@@ -96,14 +96,14 @@ class AuthRepository {
         (googlePhoto?.isNotEmpty == true && (user.photoURL?.trim().isEmpty ?? true));
 
     if (needsProfileUpdate) {
-      await user.updateProfile(
-        displayName: (user.displayName?.trim().isNotEmpty == true)
-            ? user.displayName
-            : googleName,
-        photoURL: (user.photoURL?.trim().isNotEmpty == true)
-            ? user.photoURL
-            : googlePhoto,
-      );
+      if (googleName?.isNotEmpty == true &&
+          (user.displayName?.trim().isEmpty ?? true)) {
+        await user.updateDisplayName(googleName);
+      }
+      if (googlePhoto?.isNotEmpty == true &&
+          (user.photoURL?.trim().isEmpty ?? true)) {
+        await user.updatePhotoURL(googlePhoto);
+      }
       await user.reload();
       user = _firebaseAuth.currentUser ?? user;
     }
@@ -121,7 +121,7 @@ class AuthRepository {
     if (user == null) {
       throw StateError('Usuário não autenticado no Firebase.');
     }
-    await user.updateProfile(photoURL: photoUrl);
+    await user.updatePhotoURL(photoUrl);
     await user.reload();
     await refreshFirebaseIdToken();
   }

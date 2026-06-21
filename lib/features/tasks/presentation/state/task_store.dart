@@ -607,6 +607,23 @@ class TaskStore extends ChangeNotifier {
     await _commitLocalThenPush(pending);
   }
 
+  /// Grava endereço Places/Geocoding na tarefa após a primeira resolução.
+  Future<void> persistTaskLocationAddress(
+    String taskId,
+    String formattedAddress,
+  ) async {
+    final task = taskById(taskId);
+    final loc = task?.location;
+    if (task == null || loc == null) return;
+
+    final trimmed = formattedAddress.trim();
+    if (trimmed.isEmpty || loc.formattedAddress == trimmed) return;
+
+    await updateTask(
+      task.copyWith(location: loc.copyWith(formattedAddress: trimmed)),
+    );
+  }
+
   Future<void> updateTaskDone(String taskId, bool done) async {
     final index = _tasks.indexWhere((t) => t.id == taskId);
     if (index < 0) return;

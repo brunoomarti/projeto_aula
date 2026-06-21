@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:hugeicons/hugeicons.dart';
 
@@ -9,6 +10,7 @@ import 'package:tasker_nlp/tasker_nlp.dart';
 import '../../../../core/services/geocode_service.dart';
 import '../../domain/task.dart';
 import '../../domain/task_icon_catalog.dart';
+import '../state/task_store.dart';
 
 /// Cores e raios alinhados à referência visual do Tasker.
 abstract final class TaskCardTokens {
@@ -603,6 +605,15 @@ class _TaskLocationRowState extends State<_TaskLocationRow> {
     final loc = widget.task.location;
     if (loc == null) return;
 
+    final persisted = loc.formattedAddress?.trim();
+    if (persisted != null && persisted.isNotEmpty) {
+      setState(() {
+        _address = persisted;
+        _loading = false;
+      });
+      return;
+    }
+
     setState(() => _loading = true);
     final address = await GeocodeService.getAddressCached(loc);
     if (!mounted) return;
@@ -610,6 +621,12 @@ class _TaskLocationRowState extends State<_TaskLocationRow> {
       _address = address;
       _loading = false;
     });
+
+    if (address != null && address.trim().isNotEmpty) {
+      await context
+          .read<TaskStore>()
+          .persistTaskLocationAddress(widget.task.id, address);
+    }
   }
 
   String get _label {

@@ -331,9 +331,7 @@ Future<ResolvedPlace?> resolvePlaceLocation(
       formatPlaceDisplayName(place);
 
   return ResolvedPlace(
-    location: TaskLocation(
-      lat: resolved.location.lat,
-      lng: resolved.location.lng,
+    location: resolved.toTaskLocation().copyWith(
       name: placeName,
     ),
     label: resolved.shortLabel.isNotEmpty
