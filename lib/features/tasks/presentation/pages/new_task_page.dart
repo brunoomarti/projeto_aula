@@ -1,5 +1,10 @@
 import 'dart:async';
 
+import 'package:tasker_project/core/icons/tasker_icon.dart';
+import 'package:tasker_project/core/icons/tasker_icon_glyph.dart';
+
+import 'package:hugeicons/hugeicons.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
@@ -9,7 +14,10 @@ import 'package:uuid/uuid.dart';
 import '../../../../app/theme/tasker_card_style.dart';
 import '../../../../app/theme/tasker_colors.dart';
 import '../../../../core/layout/tasker_breakpoints.dart';
-import '../../../../core/nlp/extract_errand_list_pt_br.dart';
+import '../../../../core/widgets/tasker_sliding_segmented_control.dart';
+import '../../../../core/widgets/tasker_floating_page_shell.dart';
+import '../../../../core/widgets/tasker_glass_footer_bar.dart';
+import 'package:tasker_nlp/tasker_nlp.dart';
 import '../../domain/task.dart';
 import '../../domain/task_icon_catalog.dart';
 import '../state/task_store.dart';
@@ -17,10 +25,12 @@ import '../widgets/complete_input.dart';
 import '../widgets/task_errand_list_fields.dart';
 import '../widgets/task_icon_picker_section.dart';
 import '../widgets/task_location_picker_map.dart';
+import '../widgets/task_form_footer.dart';
+import '../widgets/task_form_preview_card.dart';
+import '../widgets/task_form_stepper.dart';
+import '../widgets/task_form_step_transition.dart';
 import '../widgets/task_page_header.dart';
 import '../widgets/task_section_card.dart';
-
-enum _SubmitAction { stay, back }
 
 enum _TaskBodyMode { description, errandList }
 
@@ -41,6 +51,15 @@ class NewTaskPage extends StatefulWidget {
 class _NewTaskPageState extends State<NewTaskPage> {
   static final _uuid = Uuid();
 
+  static const _stepLabels = [
+    'Detalhes',
+    'Quando e local',
+    'Aparência',
+    'Revisar',
+  ];
+
+  static final _stepCount = _stepLabels.length;
+
   final _titleController = TextEditingController();
   final _descricaoController = TextEditingController();
   final List<TextEditingController> _errandItemControllers = [];
@@ -54,7 +73,11 @@ class _NewTaskPageState extends State<NewTaskPage> {
   int _iconBackgroundArgb = TaskIconCatalog.defaultColor.backgroundArgb;
 
   bool _isSubmitting = false;
-  _SubmitAction? _submittingAction;
+  int _currentStep = 0;
+  int _stepDirection = 1;
+  bool _appearanceCustomized = false;
+  bool _iconSuggestedFromTitle = false;
+  Timer? _titleIconSuggestionTimer;
 
   final _mapPickerKey = GlobalKey<TaskLocationPickerMapState>();
 
@@ -70,6 +93,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
     super.initState();
     final existing = widget.taskToEdit;
     if (existing != null) {
+      _appearanceCustomized = true;
       _titleController.text = existing.title;
       _dataYmd = existing.data.isNotEmpty ? existing.data : _defaultDateYmd();
       _hora = _parseHora(existing.hora);
@@ -101,10 +125,69 @@ class _NewTaskPageState extends State<NewTaskPage> {
       _bodyMode = _TaskBodyMode.description;
       _setErrandControllers(const ['']);
     }
+    _titleController.addListener(_onTitleChanged);
+    _descricaoController.addListener(_refreshPreview);
   }
+
+  void _onTitleChanged() {
+    _refreshPreview();
+    _scheduleTitleIconSuggestion();
+  }
+
+  void _scheduleTitleIconSuggestion() {
+    if (_appearanceCustomized) return;
+    _titleIconSuggestionTimer?.cancel();
+    _titleIconSuggestionTimer = Timer(
+      const Duration(milliseconds: 320),
+      _applyTitleIconSuggestion,
+    );
+  }
+
+  void _applyTitleIconSuggestion() {
+    if (!mounted || _appearanceCustomized) return;
+
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      if (_iconSuggestedFromTitle) {
+        setState(() {
+          _iconKey = TaskIconCatalog.defaultIconKey;
+          _iconBackgroundArgb = TaskIconCatalog.defaultColor.backgroundArgb;
+          _iconSuggestedFromTitle = false;
+        });
+      }
+      return;
+    }
+
+    final inferred = inferTaskIconPTBR(title);
+    final iconKey = TaskIconCatalog.optionForKey(inferred.iconKey).key;
+    final backgroundArgb =
+        TaskIconCatalog.presetForArgb(inferred.backgroundArgb).backgroundArgb;
+
+    if (iconKey == _iconKey &&
+        backgroundArgb == _iconBackgroundArgb &&
+        _iconSuggestedFromTitle) {
+      return;
+    }
+
+    setState(() {
+      _iconKey = iconKey;
+      _iconBackgroundArgb = backgroundArgb;
+      _iconSuggestedFromTitle = true;
+    });
+  }
+
+  void _refreshPreview() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _isLastStep => _currentStep >= _stepCount - 1;
+
+  String get _stepSubtitle =>
+      'Passo ${_currentStep + 1} de $_stepCount · ${_stepLabels[_currentStep]}';
 
   void _setErrandControllers(List<String> items) {
     for (final c in _errandItemControllers) {
+      c.removeListener(_refreshPreview);
       c.dispose();
     }
     _errandItemControllers
@@ -114,6 +197,9 @@ class _NewTaskPageState extends State<NewTaskPage> {
             .map((s) => TextEditingController(text: s))
             .toList(),
       );
+    for (final c in _errandItemControllers) {
+      c.addListener(_refreshPreview);
+    }
   }
 
   List<String> _errandItemTexts() =>
@@ -132,7 +218,9 @@ class _NewTaskPageState extends State<NewTaskPage> {
 
   void _addErrandItem() {
     setState(() {
-      _errandItemControllers.add(TextEditingController());
+      final controller = TextEditingController();
+      controller.addListener(_refreshPreview);
+      _errandItemControllers.add(controller);
     });
   }
 
@@ -170,9 +258,13 @@ class _NewTaskPageState extends State<NewTaskPage> {
 
   @override
   void dispose() {
+    _titleIconSuggestionTimer?.cancel();
+    _titleController.removeListener(_onTitleChanged);
+    _descricaoController.removeListener(_refreshPreview);
     _titleController.dispose();
     _descricaoController.dispose();
     for (final c in _errandItemControllers) {
+      c.removeListener(_refreshPreview);
       c.dispose();
     }
     super.dispose();
@@ -249,22 +341,10 @@ class _NewTaskPageState extends State<NewTaskPage> {
     }
   }
 
-  void _resetForm() {
-    setState(() {
-      _titleController.clear();
-      _descricaoController.clear();
-      _bodyMode = _TaskBodyMode.description;
-      _setErrandControllers(const ['']);
-      _dataYmd = _defaultDateYmd();
-      _hora = null;
-      _done = false;
-      _includeLocation = false;
-      _iconKey = TaskIconCatalog.defaultIconKey;
-      _iconBackgroundArgb = TaskIconCatalog.defaultColor.backgroundArgb;
-    });
-  }
-
-  Task _buildTask({TaskLocation? location, required bool includeLocation}) {
+  Task _buildTask({
+    TaskLocation? location,
+    required bool includeLocation,
+  }) {
     final now = DateTime.now();
     final existing = widget.taskToEdit;
 
@@ -281,21 +361,21 @@ class _NewTaskPageState extends State<NewTaskPage> {
       deleted: existing?.deleted ?? false,
       iconKey: _iconKey,
       iconBackgroundArgb: _iconBackgroundArgb,
+      pilhaId: existing?.pilhaId,
     );
   }
 
   Future<Task?> _saveCommon() async {
     final titulo = _titleController.text.trim();
-    final horaStr = _horaToString(_hora);
 
-    if (titulo.isEmpty || _dataYmd.isEmpty || horaStr.isEmpty) {
+    if (titulo.isEmpty || _dataYmd.isEmpty) {
       if (!mounted) return null;
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Campos obrigatórios'),
           content: const Text(
-            'Preencha título, data e hora para continuar.',
+            'Preencha título e data para continuar.',
           ),
           actions: [
             TextButton(
@@ -317,11 +397,10 @@ class _NewTaskPageState extends State<NewTaskPage> {
         includeLocation: _includeLocation,
       );
 
-      final store = context.read<TaskStore>();
       if (_isEditing) {
-        await store.updateTask(task);
+        await context.read<TaskStore>().updateTask(task);
       } else {
-        await store.addTask(task);
+        await context.read<TaskStore>().addTask(task);
       }
 
       if (!mounted) return null;
@@ -354,42 +433,21 @@ class _NewTaskPageState extends State<NewTaskPage> {
     }
   }
 
-  Future<void> _handleAddAndStay() async {
-    if (_isEditing) return;
-    setState(() {
-      _isSubmitting = true;
-      _submittingAction = _SubmitAction.stay;
-    });
+  Future<void> _handleSubmit() async {
+    setState(() => _isSubmitting = true);
     final saved = await _saveCommon();
     if (!mounted) return;
-    setState(() {
-      _isSubmitting = false;
-      _submittingAction = null;
-    });
-    if (saved != null) _resetForm();
-  }
+    setState(() => _isSubmitting = false);
+    if (saved == null) return;
 
-  Future<void> _handleAddAndBack() async {
-    setState(() {
-      _isSubmitting = true;
-      _submittingAction = _SubmitAction.back;
-    });
-    final saved = await _saveCommon();
-    if (!mounted) return;
-    setState(() {
-      _isSubmitting = false;
-      _submittingAction = null;
-    });
-    if (saved != null) {
-      if (_isEditing) {
-        Navigator.of(context).pop(saved);
-        return;
-      }
-      final titulo = _titleController.text.trim();
-      final hora = _horaToString(_hora);
-      final body = hora.isEmpty ? titulo : '$titulo - $hora';
-      _leavePage(result: body);
+    if (_isEditing) {
+      Navigator.of(context).pop(saved);
+      return;
     }
+    final titulo = _titleController.text.trim();
+    final hora = _horaToString(_hora);
+    final body = hora.isEmpty ? titulo : '$titulo - $hora';
+    _leavePage(result: body);
   }
 
   void _leavePage({String? result}) {
@@ -407,81 +465,194 @@ class _NewTaskPageState extends State<NewTaskPage> {
     return DateFormat('dd/MM/yyyy').format(parsed);
   }
 
+  Task _buildPreviewTask() {
+    final title = _titleController.text.trim();
+    final location = _includeLocation
+        ? _mapPickerKey.currentState?.selectedLocation
+        : null;
+
+    return Task(
+      id: 'preview',
+      title: title.isEmpty ? 'Título da tarefa' : title,
+      descricao: _descricaoForSave(),
+      data: _dataYmd,
+      hora: _horaToString(_hora),
+      done: _done,
+      createdAt: DateTime.now(),
+      lastUpdated: DateTime.now(),
+      location: location,
+      iconKey: _iconKey,
+      iconBackgroundArgb: _iconBackgroundArgb,
+      synced: true,
+    );
+  }
+
+  Future<void> _goToPreviousStep() async {
+    if (_isSubmitting) return;
+    if (_currentStep > 0) {
+      setState(() {
+        _stepDirection = -1;
+        _currentStep -= 1;
+      });
+      return;
+    }
+    _leavePage();
+  }
+
+  Future<void> _goToNextStep() async {
+    if (_isSubmitting) return;
+
+    if (_currentStep == 0) {
+      final titulo = _titleController.text.trim();
+      if (titulo.isEmpty) {
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Título obrigatório'),
+            content: const Text('Informe um título antes de continuar.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+    }
+
+    if (_currentStep < _stepCount - 1) {
+      setState(() {
+        _stepDirection = 1;
+        _currentStep += 1;
+      });
+    }
+  }
+
+  Widget _buildFooter(bool allDisabled) {
+    return TaskFormStepNavFooter(
+      onBack: allDisabled ? null : _goToPreviousStep,
+      onNext: allDisabled
+          ? null
+          : (_isLastStep ? () => unawaited(_handleSubmit()) : _goToNextStep),
+      showBack: _currentStep > 0,
+      backEnabled: !allDisabled,
+      nextEnabled: !allDisabled,
+      nextLabel: _isLastStep
+          ? (_isEditing ? 'Salvar' : 'Criar tarefa')
+          : 'Próximo',
+      nextEmphasis: _isLastStep
+          ? TaskFormFooterNextEmphasis.primary
+          : TaskFormFooterNextEmphasis.standard,
+    );
+  }
+
+  Widget _buildStepContent(double width, bool allDisabled) {
+    switch (_currentStep) {
+      case 0:
+        return _buildWhatSection(allDisabled);
+      case 1:
+        return _buildScheduleAndLocationSection(width, allDisabled);
+      case 2:
+        return _buildAppearanceSection(allDisabled);
+      case 3:
+        return _buildReviewSection();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final allDisabled = _isSubmitting;
 
     return Scaffold(
       backgroundColor: TaskerColors.appBackground,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TaskPageHeaderBar(
-            title: _isEditing ? 'Editar tarefa' : 'Nova tarefa',
-            subtitle: _isEditing
-                ? 'Altere os dados abaixo'
-                : 'Preencha os dados abaixo',
-            onBack: allDisabled ? null : () => _leavePage(),
-          ),
-          Expanded(
-            child: IgnorePointer(
-              ignoring: allDisabled,
-              child: Opacity(
-                opacity: allDisabled ? 0.65 : 1,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth;
-                    return SingleChildScrollView(
-                      padding: TaskerBreakpoints.pagePadding(width),
-                      child: TaskerResponsiveContent(
-                        width: width,
-                        child: _buildFormBody(width, allDisabled),
-                      ),
-                    );
-                  },
-                ),
+      resizeToAvoidBottomInset: false,
+      body: TaskerFloatingPageShell(
+        headerReserve: TaskPageHeaderBar.reserveHeight(context),
+        header: TaskPageHeaderBar(
+          title: _isEditing ? 'Editar tarefa' : 'Nova tarefa',
+          subtitle: _stepSubtitle,
+          onBack: allDisabled ? null : () => _leavePage(),
+        ),
+        footer: TaskerGlassFooterBar(
+          child: _buildFooter(allDisabled),
+        ),
+        topFadeExtension: 64,
+        bottomFadeExtension: 80,
+        bodyBuilder: (context, insets) {
+          return IgnorePointer(
+            ignoring: allDisabled,
+            child: Opacity(
+              opacity: allDisabled ? 0.65 : 1,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  final pagePadding = TaskerBreakpoints.pagePadding(width);
+                  final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+                  return SingleChildScrollView(
+                    clipBehavior: Clip.none,
+                    padding: EdgeInsets.only(
+                      top: insets.top,
+                      bottom: insets.bottom + keyboardInset,
+                    ),
+                    child: _buildFormBody(
+                      width,
+                      allDisabled,
+                      pageHorizontalPadding: pagePadding.left,
+                    ),
+                  );
+                },
               ),
             ),
-          ),
-          ColoredBox(
-            color: Colors.white,
-            child: SafeArea(
-              top: false,
-              child: Material(
-                elevation: 8,
-                shadowColor: TaskerColors.cardShadow,
-                color: Colors.white,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth;
-                    return TaskerResponsiveContent(
-                      width: width,
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                      child: _buildActionButtons(allDisabled, width),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildFormBody(double width, bool allDisabled) {
+  Widget _buildFormBody(
+    double width,
+    bool allDisabled, {
+    required double pageHorizontalPadding,
+  }) {
+    final paddedHeader = Padding(
+      padding: EdgeInsets.symmetric(horizontal: pageHorizontalPadding),
+      child: TaskerResponsiveContent(
+        width: width,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TaskFormStepper(
+              currentStep: _currentStep,
+              labels: _stepLabels,
+            ),
+            const SizedBox(height: 16),
+            TaskFormPreviewCard(task: _buildPreviewTask()),
+          ],
+        ),
+      ),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildWhatSection(allDisabled),
-        const SizedBox(height: TaskerCardStyle.sectionSpacing),
-        _buildWhenSection(width),
-        const SizedBox(height: TaskerCardStyle.sectionSpacing),
-        _buildAppearanceSection(allDisabled),
-        const SizedBox(height: TaskerCardStyle.sectionSpacing),
-        _buildLocationSection(allDisabled),
-        const SizedBox(height: TaskerCardStyle.sectionSpacing),
-        _buildDoneTile(allDisabled),
+        paddedHeader,
+        const SizedBox(height: 20),
+        TaskFormStepTransition(
+          step: _currentStep,
+          direction: _stepDirection,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: pageHorizontalPadding),
+            child: TaskerResponsiveContent(
+              width: width,
+              child: _buildStepContent(width, allDisabled),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -489,7 +660,7 @@ class _NewTaskPageState extends State<NewTaskPage> {
   Widget _buildWhatSection(bool allDisabled) {
     return TaskSectionCard(
       title: 'Nome e detalhes',
-      icon: Icons.edit_note_outlined,
+      icon: HugeIcons.strokeRoundedNoteEdit,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -514,53 +685,43 @@ class _NewTaskPageState extends State<NewTaskPage> {
             ),
           ),
           const SizedBox(height: 8),
-          SegmentedButton<_TaskBodyMode>(
+          TaskerSlidingSegmentedControl<_TaskBodyMode>(
+            selected: _bodyMode,
+            onChanged: allDisabled
+                ? null
+                : (value) => _setBodyMode(value),
             segments: const [
-              ButtonSegment(
+              TaskerSegment(
                 value: _TaskBodyMode.description,
-                label: Text('Descrição'),
-                icon: Icon(Icons.notes_outlined, size: 18),
+                label: 'Descrição',
+                icon: AppHugeIcon(icon: HugeIcons.strokeRoundedNote01, size: 17),
               ),
-              ButtonSegment(
+              TaskerSegment(
                 value: _TaskBodyMode.errandList,
-                label: Text('Lista'),
-                icon: Icon(Icons.checklist_outlined, size: 18),
+                label: 'Lista',
+                icon: AppHugeIcon(icon: HugeIcons.strokeRoundedCheckList, size: 17),
               ),
             ],
-            selected: {_bodyMode},
-            onSelectionChanged: allDisabled
-                ? null
-                : (selection) => _setBodyMode(selection.first),
-            style: ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
           ),
           const SizedBox(height: 14),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 200),
             child: _bodyMode == _TaskBodyMode.description
-                ? CompleteInput(
+                ? TextField(
                     key: const ValueKey('description'),
-                    label: 'Descrição (opcional)',
-                    child: TextField(
-                      controller: _descricaoController,
-                      maxLines: 3,
-                      decoration: TaskerFieldDecoration.decoration(
-                        hintText: 'Detalhes, links, observações…',
-                      ),
-                      style: TaskerFieldDecoration.textStyle,
+                    controller: _descricaoController,
+                    maxLines: 3,
+                    decoration: TaskerFieldDecoration.decoration(
+                      hintText: 'Detalhes, links, observações…',
                     ),
+                    style: TaskerFieldDecoration.textStyle,
                   )
-                : CompleteInput(
+                : TaskErrandListFields(
                     key: const ValueKey('errand-list'),
-                    label: errandListSummaryLabel,
-                    child: TaskErrandListFields(
-                      controllers: _errandItemControllers,
-                      enabled: !allDisabled,
-                      onAdd: _addErrandItem,
-                      onRemove: _removeErrandItem,
-                    ),
+                    controllers: _errandItemControllers,
+                    enabled: !allDisabled,
+                    onAdd: _addErrandItem,
+                    onRemove: _removeErrandItem,
                   ),
           ),
         ],
@@ -571,80 +732,84 @@ class _NewTaskPageState extends State<NewTaskPage> {
   Widget _buildAppearanceSection(bool allDisabled) {
     return TaskSectionCard(
       title: 'Ícone e cor',
-      icon: Icons.palette_outlined,
-      child: TaskIconPickerSection(
-        iconKey: _iconKey,
-        backgroundArgb: _iconBackgroundArgb,
-        enabled: !allDisabled,
-        onIconChanged: (key) => setState(() => _iconKey = key),
-        onColorChanged: (argb) => setState(() => _iconBackgroundArgb = argb),
-      ),
-    );
-  }
-
-  Widget _buildWhenSection(double width) {
-    final stackFields = width < 400;
-
-    final dateField = _PickerField(
-      label: 'Data',
-      value: _dataDisplay,
-      icon: Icons.calendar_today_outlined,
-      onTap: _pickDate,
-    );
-    final timeField = _PickerField(
-      label: 'Hora',
-      value: _horaToString(_hora).isEmpty
-          ? 'Selecionar'
-          : _horaToString(_hora),
-      icon: Icons.access_time_outlined,
-      muted: _hora == null,
-      onTap: _pickTime,
-    );
-
-    return TaskSectionCard(
-      title: 'Quando',
-      icon: Icons.schedule_outlined,
-      child: stackFields
-          ? Column(
-              children: [
-                dateField,
-                const SizedBox(height: 12),
-                timeField,
-              ],
-            )
-          : Row(
-              children: [
-                Expanded(child: dateField),
-                const SizedBox(width: 12),
-                Expanded(child: timeField),
-              ],
-            ),
-    );
-  }
-
-  Widget _buildDoneTile(bool allDisabled) {
-    return TaskSectionActionTile(
-      icon: Icons.check_circle_outline,
-      title: 'Marcar como feita',
-      subtitle: 'A tarefa já foi concluída',
-      active: _done,
-      onTap: allDisabled ? null : () => setState(() => _done = !_done),
-      trailing: Switch.adaptive(
-        value: _done,
-        onChanged: allDisabled ? null : (v) => setState(() => _done = v),
-        activeThumbColor: Colors.white,
-        activeTrackColor: TaskerColors.primary,
-      ),
-    );
-  }
-
-  Widget _buildLocationSection(bool allDisabled) {
-    return TaskSectionCard(
-      title: 'Localização',
-      icon: Icons.location_on_outlined,
+      icon: HugeIcons.strokeRoundedColors,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (_iconSuggestedFromTitle && !_appearanceCustomized)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Sugerido automaticamente a partir do título.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.35,
+                  color: TaskerColors.primary.withValues(alpha: 0.88),
+                ),
+              ),
+            ),
+          TaskIconPickerSection(
+            iconKey: _iconKey,
+            backgroundArgb: _iconBackgroundArgb,
+            enabled: !allDisabled,
+            onIconChanged: (key) => setState(() {
+              _iconKey = key;
+              _appearanceCustomized = true;
+              _iconSuggestedFromTitle = false;
+            }),
+            onColorChanged: (argb) => setState(() {
+              _iconBackgroundArgb = argb;
+              _appearanceCustomized = true;
+              _iconSuggestedFromTitle = false;
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleAndLocationSection(double width, bool allDisabled) {
+    final stackFields = width < 400;
+
+    final dateField = _PickerField(
+      value: _dataDisplay,
+      icon: HugeIcons.strokeRoundedCalendar01,
+      onTap: _pickDate,
+    );
+    final timeField = _PickerField(
+      value: _horaToString(_hora).isEmpty
+          ? 'Sem horário'
+          : _horaToString(_hora),
+      icon: HugeIcons.strokeRoundedClock01,
+      muted: _hora == null,
+      onTap: _pickTime,
+      onClear: _hora != null ? () => setState(() => _hora = null) : null,
+    );
+
+    return TaskSectionCard(
+      title: 'Quando e local',
+      icon: HugeIcons.strokeRoundedTimeSchedule,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          stackFields
+              ? Column(
+                  children: [
+                    dateField,
+                    const SizedBox(height: 10),
+                    timeField,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: dateField),
+                    const SizedBox(width: 10),
+                    Expanded(child: timeField),
+                  ],
+                ),
+          const SizedBox(height: TaskerCardStyle.sectionHeaderGap),
+          const Divider(height: 1, color: Color(0xFFE8EBF2)),
+          const SizedBox(height: TaskerCardStyle.sectionHeaderGap),
           InkWell(
             onTap: allDisabled
                 ? null
@@ -714,93 +879,132 @@ class _NewTaskPageState extends State<NewTaskPage> {
     );
   }
 
-  Widget _buildActionButtons(bool allDisabled, double width) {
-    final isWide = TaskerBreakpoints.isWide(width);
-
-    if (isWide && !_isEditing) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          SizedBox(
-            width: 220,
-            child: _TaskerOutlineButton(
-              onPressed: allDisabled ? null : _handleAddAndStay,
-              loading: _submittingAction == _SubmitAction.stay,
-              label: 'Salvar e criar outra',
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 160,
-            child: _TaskerPrimaryButton(
-              onPressed: allDisabled ? null : _handleAddAndBack,
-              loading: _submittingAction == _SubmitAction.back,
-              label: 'Adicionar',
-            ),
-          ),
-        ],
-      );
+  String _reviewDetailText() {
+    if (_bodyMode == _TaskBodyMode.errandList) {
+      final items = _errandItemTexts()
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (items.isEmpty) return 'Nenhum item na lista';
+      if (items.length == 1) return items.first;
+      return '${items.length} itens · ${items.first}';
     }
+    final text = _descricaoController.text.trim();
+    return text.isEmpty ? 'Sem descrição' : text;
+  }
 
-    return Row(
-      children: [
-        if (!_isEditing) ...[
-          Expanded(
-            flex: 3,
-            child: _TaskerOutlineButton(
-              onPressed: allDisabled ? null : _handleAddAndStay,
-              loading: _submittingAction == _SubmitAction.stay,
-              label: 'Salvar e criar outra',
+  String _reviewLocationText() {
+    if (!_includeLocation) return 'Sem localização';
+    final location = _mapPickerKey.currentState?.selectedLocation;
+    if (location?.name?.trim().isNotEmpty == true) {
+      return location!.name!.trim();
+    }
+    if (location != null) {
+      return 'Local definido no mapa';
+    }
+    return 'Localização pendente no mapa';
+  }
+
+  Widget _buildReviewSection() {
+    final iconLabel = TaskIconCatalog.icons
+        .firstWhere(
+          (option) => option.key == _iconKey,
+          orElse: () => TaskIconCatalog.icons.first,
+        )
+        .label;
+
+    return TaskSectionCard(
+      title: 'Detalhes da tarefa',
+      icon: HugeIcons.strokeRoundedView,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ReviewDetailRow(
+            label: 'Título',
+            value: _titleController.text.trim().isEmpty
+                ? '—'
+                : _titleController.text.trim(),
+          ),
+          _ReviewDetailRow(label: 'Detalhes', value: _reviewDetailText()),
+          _ReviewDetailRow(label: 'Data', value: _dataDisplay),
+          _ReviewDetailRow(
+            label: 'Hora',
+            value: _horaToString(_hora).isEmpty
+                ? 'Sem horário'
+                : _horaToString(_hora),
+          ),
+          _ReviewDetailRow(label: 'Ícone', value: iconLabel),
+          _ReviewDetailRow(label: 'Local', value: _reviewLocationText()),
+          const SizedBox(height: 12),
+          Text(
+            _isEditing
+                ? 'Confira os dados acima e deslize para salvar.'
+                : 'Confira os dados acima e deslize para criar.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.35,
+              color: TaskerColors.secondaryText.withValues(alpha: 0.88),
             ),
           ),
-          const SizedBox(width: 12),
         ],
-        Expanded(
-          flex: _isEditing ? 1 : 2,
-          child: _TaskerPrimaryButton(
-            onPressed: allDisabled ? null : _handleAddAndBack,
-            loading: _submittingAction == _SubmitAction.back,
-            label: _isEditing ? 'Salvar' : 'Adicionar',
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
 class _PickerField extends StatelessWidget {
   const _PickerField({
-    required this.label,
     required this.value,
     required this.icon,
     required this.onTap,
     this.muted = false,
+    this.onClear,
   });
 
-  final String label;
   final String value;
-  final IconData icon;
+  final TaskerIconGlyph icon;
   final VoidCallback onTap;
   final bool muted;
+  final VoidCallback? onClear;
 
   @override
   Widget build(BuildContext context) {
-    return CompleteInput(
-      label: label,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: InputDecorator(
-            decoration: TaskerFieldDecoration.decoration(
-              suffixIcon: Icon(icon, size: 20, color: TaskerColors.primary),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: InputDecorator(
+          decoration: TaskerFieldDecoration.decoration(
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (onClear != null)
+                  IconButton(
+                    onPressed: onClear,
+                    icon: const AppHugeIcon(
+                      icon: HugeIcons.strokeRoundedCancel01,
+                      size: 18,
+                    ),
+                    color: TaskerColors.mutedText,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    tooltip: 'Remover horário',
+                  ),
+                TaskerIcon(icon: icon, size: 20, color: TaskerColors.primary),
+                const SizedBox(width: 4),
+              ],
             ),
-            child: Text(
-              value,
-              style: TaskerFieldDecoration.textStyle.copyWith(
-                color: muted ? TaskerColors.mutedText : TaskerColors.primaryText,
-              ),
+          ),
+          child: Text(
+            value,
+            style: TaskerFieldDecoration.textStyle.copyWith(
+              color: muted ? TaskerColors.mutedText : TaskerColors.primaryText,
             ),
           ),
         ),
@@ -809,83 +1013,45 @@ class _PickerField extends StatelessWidget {
   }
 }
 
-class _TaskerPrimaryButton extends StatelessWidget {
-  const _TaskerPrimaryButton({
-    required this.onPressed,
-    required this.loading,
+class _ReviewDetailRow extends StatelessWidget {
+  const _ReviewDetailRow({
     required this.label,
+    required this.value,
   });
 
-  final VoidCallback? onPressed;
-  final bool loading;
   final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton(
-      onPressed: onPressed,
-      style: FilledButton.styleFrom(
-        backgroundColor: TaskerColors.primary,
-        foregroundColor: Colors.white,
-        minimumSize: const Size.fromHeight(48),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      child: loading
-          ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
-            )
-          : Text(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
               label,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-    );
-  }
-}
-
-class _TaskerOutlineButton extends StatelessWidget {
-  const _TaskerOutlineButton({
-    required this.onPressed,
-    required this.loading,
-    required this.label,
-  });
-
-  final VoidCallback? onPressed;
-  final bool loading;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: TaskerColors.primary,
-        side: const BorderSide(color: TaskerColors.primary),
-        minimumSize: const Size.fromHeight(48),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      child: loading
-          ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: TaskerColors.primary,
-              ),
-            )
-          : Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
+              style: TextStyle(
                 fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: TaskerColors.secondaryText.withValues(alpha: 0.82),
               ),
             ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                color: TaskerColors.primaryText,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

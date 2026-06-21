@@ -7,6 +7,12 @@ abstract final class TaskerColors {
   static const Color secondaryText = Color(0xFF4C4C4C);
   static const Color mutedText = Color(0xFFA5A5A5);
 
+  /// Azul petróleo escuro — cabeçalho da home e ênfases sutis.
+  static const Color petroleumDark = Color(0xFF1A3D47);
+
+  /// Cor de alerta/ação destrutiva (excluir, sair da conta).
+  static const Color warning = Color(0xFFE15E5B);
+
   /// `--app-background-color`
   static const Color appBackground = Color(0xFFE3E5F0);
 

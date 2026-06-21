@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'package:hugeicons/hugeicons.dart';
+
 import '../../../../app/theme/tasker_colors.dart';
-import '../../../../core/nlp/extract_errand_list_pt_br.dart';
+import '../../../../core/icons/tasker_icon.dart';
+import '../../../../core/icons/tasker_icon_glyph.dart';
+import 'package:tasker_nlp/tasker_nlp.dart';
 import '../../../../core/services/geocode_service.dart';
 import '../../domain/task.dart';
 import '../../domain/task_icon_catalog.dart';
@@ -22,11 +26,36 @@ abstract final class TaskCardTokens {
   static const double borderRadius = 24;
   static const double padding = 22;
 
+  /// Tipografia do conteúdo principal — hierarquia título > descrição > metadados.
+  static const double titleFontSize = 17;
+  static const double titleLineHeight = 1.16;
+  static const double descriptionFontSize = 13;
+  static const double descriptionLineHeight = 1.18;
+  static const double metadataFontSize = 12;
+  static const double titleDescriptionGap = 4;
+
+  /// Sombra padrão de todos os cards (home, pilha fechada/aberta, detalhes).
+  static const double cardElevation = 2;
+  static const Color cardShadowColor = Color.fromARGB(99, 0, 0, 0);
+
+  /// Envolve o conteúdo do card com fundo, raio e sombra.
+  static Widget shell({required Widget child, double? elevation}) {
+    return Material(
+      color: cardBackground,
+      elevation: elevation ?? cardElevation,
+      shadowColor: cardShadowColor,
+      surfaceTintColor: Colors.transparent,
+      borderRadius: BorderRadius.circular(borderRadius),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
+  }
+
   /// Altura do quadrado do ícone — o conteúdo à direita usa a mesma altura.
   static const double iconBoxSize = 66;
 
   /// Ícone padrão até o usuário poder personalizar por tarefa.
-  static const IconData defaultIcon = Icons.home_outlined;
+  static const TaskerIconGlyph defaultIcon = HugeIcons.strokeRoundedGuestHouse;
 
   /// Cor de fundo do ícone — personalizada ou padrão.
   static Color iconBackgroundFor(Task task) =>
@@ -93,14 +122,7 @@ class TaskCardSurface extends StatelessWidget {
       ),
     );
 
-    final card = Material(
-      color: TaskCardTokens.cardBackground,
-      elevation: 2,
-      shadowColor: const Color(0x12000000),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(TaskCardTokens.borderRadius),
-      ),
-      clipBehavior: Clip.antiAlias,
+    final card = TaskCardTokens.shell(
       child: Stack(
         children: [
           content,
@@ -196,21 +218,6 @@ class _TaskCardBody extends StatelessWidget {
       ],
     );
 
-    final contentArea = flexibleHeight
-        ? textColumn
-        : SizedBox(height: TaskCardTokens.iconBoxSize, child: textColumn);
-
-    if (!flexibleHeight) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _DefaultCategoryIcon(task: task),
-          const SizedBox(width: 14),
-          Expanded(child: contentArea),
-        ],
-      );
-    }
-
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -256,6 +263,8 @@ class _TopBlock extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            _SyncStatusIcon(synced: task.synced),
+            const SizedBox(width: 6),
             Expanded(
               child: _TaskTitle(
                 task: task,
@@ -269,7 +278,7 @@ class _TopBlock extends StatelessWidget {
             ],
           ],
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: TaskCardTokens.titleDescriptionGap),
         _TaskDescription(
           task: task,
           maxLines: descriptionMaxLines,
@@ -359,8 +368,10 @@ class TaskStatusBadge extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              done ? Icons.check_circle_rounded : Icons.pending_outlined,
+            AppHugeIcon(
+              icon: done
+                  ? HugeIcons.strokeRoundedCheckmarkCircle01
+                  : HugeIcons.strokeRoundedHourglass,
               size: 14,
               color: fg,
             ),
@@ -392,7 +403,7 @@ class TaskCardIconBox extends StatelessWidget {
     this.stretch = false,
   });
 
-  final IconData icon;
+  final TaskerIconGlyph icon;
   final Color backgroundColor;
   final Color iconColor;
   final double size;
@@ -410,7 +421,7 @@ class TaskCardIconBox extends StatelessWidget {
         color: backgroundColor,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Icon(icon, size: iconSize, color: iconColor),
+      child: TaskerIcon(icon: icon, size: iconSize, color: iconColor),
     );
   }
 }
@@ -460,6 +471,33 @@ class _DefaultCategoryIcon extends StatelessWidget {
   }
 }
 
+/// Indicador de sincronização à esquerda do título.
+///
+/// - Sincronizada (na nuvem): nuvem com check, em verde discreto.
+/// - Pendente (offline / aguardando envio): nuvem cortada, em âmbar.
+class _SyncStatusIcon extends StatelessWidget {
+  const _SyncStatusIcon({required this.synced});
+
+  final bool synced;
+
+  static const Color _syncedColor = Color(0xFF3BA55D);
+  static const Color _pendingColor = Color(0xFFE6A100);
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: synced ? 'Sincronizada' : 'Aguardando sincronização',
+      child: AppHugeIcon(
+        icon: synced
+            ? HugeIcons.strokeRoundedCloudSavingDone01
+            : HugeIcons.strokeRoundedCloudLoading,
+        size: 16,
+        color: synced ? _syncedColor : _pendingColor,
+      ),
+    );
+  }
+}
+
 class _TaskTitle extends StatelessWidget {
   const _TaskTitle({required this.task, required this.done, this.maxLines = 1});
 
@@ -475,9 +513,9 @@ class _TaskTitle extends StatelessWidget {
           const TextStyle(
             color: TaskCardTokens.primaryText,
             fontWeight: FontWeight.w700,
-            fontSize: 16,
-            height: 1.15,
-            letterSpacing: -0.2,
+            fontSize: TaskCardTokens.titleFontSize,
+            height: TaskCardTokens.titleLineHeight,
+            letterSpacing: -0.25,
           ).copyWith(
             decoration: done ? TextDecoration.lineThrough : null,
             decorationColor: TaskCardTokens.secondaryText.withValues(
@@ -514,11 +552,11 @@ class _TaskDescription extends StatelessWidget {
     return Text(
       text,
       style: TextStyle(
-        color: TaskCardTokens.secondaryText.withValues(alpha: 0.8),
-        fontSize: 12,
-        height: 1.2,
+        color: TaskCardTokens.secondaryText.withValues(alpha: 0.82),
+        fontSize: TaskCardTokens.descriptionFontSize,
+        height: TaskCardTokens.descriptionLineHeight,
         fontStyle: isPlaceholder ? FontStyle.italic : FontStyle.normal,
-        fontWeight: FontWeight.w400,
+        fontWeight: isPlaceholder ? FontWeight.w400 : FontWeight.w500,
       ),
       maxLines: maxLines,
       overflow: TextOverflow.ellipsis,
@@ -587,10 +625,6 @@ class _TaskLocationRowState extends State<_TaskLocationRow> {
     return TaskLocation.formatAddressLine(location: loc);
   }
 
-  static String _formatCoords(TaskLocation loc) {
-    return TaskLocation.formatAddressLine(location: loc);
-  }
-
   @override
   Widget build(BuildContext context) {
     final hasLocation = widget.task.location != null;
@@ -598,10 +632,10 @@ class _TaskLocationRowState extends State<_TaskLocationRow> {
 
     return Row(
       children: [
-        Icon(
-          hasLocation
-              ? Icons.location_on_outlined
-              : Icons.location_off_outlined,
+        AppHugeIcon(
+          icon: hasLocation
+              ? HugeIcons.strokeRoundedLocation01
+              : HugeIcons.strokeRoundedLocationOffline01,
           size: 14,
           color: TaskCardTokens.mutedText.withValues(alpha: 0.85),
         ),
@@ -611,7 +645,7 @@ class _TaskLocationRowState extends State<_TaskLocationRow> {
             _label,
             style: TextStyle(
               color: hasLocation ? muted : muted.withValues(alpha: 0.8),
-              fontSize: 12,
+              fontSize: TaskCardTokens.metadataFontSize,
               fontWeight: FontWeight.w400,
               height: 1.25,
               fontStyle: _loading ? FontStyle.italic : FontStyle.normal,
@@ -656,8 +690,7 @@ class _TaskTimeLabel extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(
-          Icons.alarm_outlined,
+        AppHugeIcon(icon: HugeIcons.strokeRoundedAlarmClock,
           size: 14,
           color: TaskCardTokens.mutedText.withValues(alpha: 0.9),
         ),
@@ -668,12 +701,78 @@ class _TaskTimeLabel extends StatelessWidget {
             color: hasTime
                 ? TaskCardTokens.secondaryText.withValues(alpha: 0.65)
                 : TaskCardTokens.mutedText,
-            fontSize: 12,
+            fontSize: TaskCardTokens.metadataFontSize,
             fontWeight: FontWeight.w400,
             height: 1.1,
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Círculo preenchido com anel branco e check central — toggle concluído.
+class FilledCheckCircleBadge extends StatelessWidget {
+  const FilledCheckCircleBadge({
+    super.key,
+    required this.color,
+    this.size = 24,
+  });
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final outerBorder = size * (1.75 / 24);
+    final ringInset = size * (6 / 24);
+    final ringBorder = size * (1.25 / 24);
+    final checkSize = size * (10 / 24);
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color,
+          border: Border.all(color: color, width: outerBorder),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Padding(
+              padding: EdgeInsets.all(ringInset),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: ringBorder),
+                ),
+              ),
+            ),
+            AppHugeIcon(
+              icon: HugeIcons.strokeRoundedTick01,
+              size: checkSize,
+              color: Colors.white,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Círculo azul com anel branco e check — estado concluído do toggle de tarefa.
+class TaskDoneCheckCircle extends StatelessWidget {
+  const TaskDoneCheckCircle({super.key, this.size = 24});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledCheckCircleBadge(
+      color: TaskCardTokens.doneAccent,
+      size: size,
     );
   }
 }
@@ -684,7 +783,7 @@ class _TaskDoneToggle extends StatelessWidget {
   final Task task;
   final VoidCallback onToggleDone;
 
-  static const _size = 27.0;
+  static const _size = 24.0;
 
   @override
   Widget build(BuildContext context) {
@@ -694,33 +793,22 @@ class _TaskDoneToggle extends StatelessWidget {
       child: GestureDetector(
         onTap: onToggleDone,
         behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          width: _size,
-          height: _size,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: task.done ? TaskCardTokens.doneAccent : Colors.white,
-              border: Border.all(
-                color: task.done
-                    ? TaskCardTokens.doneAccent
-                    : TaskCardTokens.toggleBorder,
-                width: 2,
-              ),
-            ),
-            child: task.done
-                ? Padding(
-                    padding: const EdgeInsets.all(4.5),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
-                      ),
+        child: task.done
+            ? const TaskDoneCheckCircle(size: _size)
+            : SizedBox(
+                width: _size,
+                height: _size,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white,
+                    border: Border.all(
+                      color: TaskCardTokens.toggleBorder,
+                      width: 1.75,
                     ),
-                  )
-                : null,
-          ),
-        ),
+                  ),
+                ),
+              ),
       ),
     );
   }

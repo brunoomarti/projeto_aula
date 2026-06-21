@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../../app/theme/tasker_colors.dart';
+import 'package:tasker_project/core/icons/tasker_icon.dart';
 
+import 'package:hugeicons/hugeicons.dart';
+
+import '../../../../app/theme/tasker_colors.dart';
 /// Botão fixo acima da lista — abre o formulário completo de nova tarefa.
 class HomeNewTaskButton extends StatelessWidget {
   const HomeNewTaskButton({
@@ -40,8 +43,7 @@ class HomeNewTaskButton extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.add_circle_outline,
+                AppHugeIcon(icon: HugeIcons.strokeRoundedAddCircle,
                   size: 22,
                   color: TaskerColors.primary,
                 ),

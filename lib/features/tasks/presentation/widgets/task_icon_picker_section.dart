@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'package:hugeicons/hugeicons.dart';
+
 import '../../../../app/theme/tasker_colors.dart';
+import '../../../../core/icons/tasker_icon.dart';
 import '../../domain/task_icon_catalog.dart';
 import 'task_card.dart';
 
@@ -121,8 +124,7 @@ class _TaskIconPickerSectionState extends State<TaskIconPickerSection> {
                         ],
                       ),
                     ),
-                    Icon(
-                      Icons.edit_outlined,
+                    AppHugeIcon(icon: HugeIcons.strokeRoundedEdit01,
                       size: 18,
                       color: _expanded
                           ? TaskerColors.primary
@@ -132,8 +134,7 @@ class _TaskIconPickerSectionState extends State<TaskIconPickerSection> {
                     AnimatedRotation(
                       turns: _expanded ? 0.5 : 0,
                       duration: const Duration(milliseconds: 200),
-                      child: Icon(
-                        Icons.keyboard_arrow_down_rounded,
+                      child: AppHugeIcon(icon: HugeIcons.strokeRoundedArrowDown01,
                         size: 24,
                         color: _expanded
                             ? TaskerColors.primary
@@ -214,7 +215,7 @@ class _TaskIconPickerSectionState extends State<TaskIconPickerSection> {
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
                     onPressed: widget.enabled ? _collapse : null,
-                    icon: const Icon(Icons.check_rounded, size: 18),
+                    icon: const AppHugeIcon(icon: HugeIcons.strokeRoundedTick01, size: 18),
                     label: const Text('Pronto'),
                     style: TextButton.styleFrom(
                       foregroundColor: TaskerColors.primary,
@@ -275,10 +276,12 @@ class _IconChip extends StatelessWidget {
                 width: selected ? 2 : 1,
               ),
             ),
-            child: Icon(
-              option.icon,
-              size: 24,
-              color: selected ? foregroundColor : TaskerColors.mutedText,
+            child: Center(
+              child: TaskerIcon(
+                icon: option.icon,
+                size: 24,
+                color: selected ? foregroundColor : TaskerColors.mutedText,
+              ),
             ),
           ),
         ),
@@ -334,7 +337,7 @@ class _ColorSwatch extends StatelessWidget {
                   : null,
             ),
             child: selected
-                ? Icon(Icons.check, size: 18, color: preset.foreground)
+                ? AppHugeIcon(icon: HugeIcons.strokeRoundedTick01, size: 18, color: preset.foreground)
                 : null,
           ),
         ),

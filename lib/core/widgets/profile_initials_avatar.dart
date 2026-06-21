@@ -54,3 +54,49 @@ class ProfileInitialsAvatar extends StatelessWidget {
     );
   }
 }
+
+/// Avatar do usuário — foto da conta (Google) ou iniciais como fallback.
+class ProfileAvatar extends StatelessWidget {
+  const ProfileAvatar({
+    super.key,
+    required this.initials,
+    this.imageUrl,
+    this.size = 48,
+  });
+
+  final String initials;
+  final String? imageUrl;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = imageUrl?.trim();
+    if (url == null || url.isEmpty) {
+      return ProfileInitialsAvatar(initials: initials, size: size);
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: TaskerColors.primary.withValues(alpha: 0.25),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Image.network(
+        url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            ProfileInitialsAvatar(initials: initials, size: size),
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return ProfileInitialsAvatar(initials: initials, size: size);
+        },
+      ),
+    );
+  }
+}

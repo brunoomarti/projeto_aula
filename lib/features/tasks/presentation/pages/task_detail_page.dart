@@ -1,4 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'package:tasker_project/core/icons/tasker_icon.dart';
+import 'package:tasker_project/core/icons/tasker_icon_glyph.dart';
+
+import 'package:hugeicons/hugeicons.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -8,7 +13,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../app/theme/tasker_card_style.dart';
 import '../../../../app/theme/tasker_colors.dart';
 import '../../../../core/layout/tasker_breakpoints.dart';
-import '../../../../core/nlp/extract_errand_list_pt_br.dart';
+import '../../../../core/widgets/tasker_floating_page_shell.dart';
+import '../../../../core/widgets/tasker_map_pin.dart';
+import 'package:tasker_nlp/tasker_nlp.dart';
 import '../../../../core/services/geocode_service.dart';
 import '../../domain/task.dart';
 import '../state/task_store.dart';
@@ -200,51 +207,55 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
       backgroundColor: TaskerColors.appBackground,
       body: Stack(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TaskPageHeaderBar(
-                title: 'Detalhes',
-                subtitle: 'Informações da tarefa',
-                onBack: () => Navigator.of(context).pop(),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      onPressed: _openEdit,
-                      icon: const Icon(Icons.edit_outlined),
-                      color: TaskerColors.primaryText,
-                      tooltip: 'Editar tarefa',
-                    ),
-                    IconButton(
-                      onPressed: () => setState(() => _confirmDeleteOpen = true),
-                      icon: const Icon(Icons.delete_outline_rounded),
-                      color: const Color(0xFFE15E5B),
-                      tooltip: 'Excluir tarefa',
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: RefreshIndicator(
-                  color: TaskerColors.primary,
-                  onRefresh: _refreshAddress,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final width = constraints.maxWidth;
-                      return SingleChildScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: TaskerBreakpoints.pagePadding(width),
-                        child: TaskerResponsiveContent(
-                          width: width,
-                          child: _buildBody(width, task),
-                        ),
-                      );
-                    },
+          TaskerFloatingPageShell(
+            headerReserve: TaskPageHeaderBar.reserveHeight(context),
+            header: TaskPageHeaderBar(
+              title: 'Detalhes',
+              subtitle: 'Informações da tarefa',
+              onBack: () => Navigator.of(context).pop(),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    onPressed: _openEdit,
+                    icon: const AppHugeIcon(icon: HugeIcons.strokeRoundedEdit01),
+                    color: TaskerColors.primaryText,
+                    tooltip: 'Editar tarefa',
                   ),
-                ),
+                  IconButton(
+                    onPressed: () => setState(() => _confirmDeleteOpen = true),
+                    icon: const AppHugeIcon(icon: HugeIcons.strokeRoundedDelete01),
+                    color: const Color(0xFFE15E5B),
+                    tooltip: 'Excluir tarefa',
+                  ),
+                ],
               ),
-            ],
+            ),
+            bodyBuilder: (context, insets) {
+              return RefreshIndicator(
+                color: TaskerColors.primary,
+                onRefresh: _refreshAddress,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.maxWidth;
+                    final pagePadding = TaskerBreakpoints.pagePadding(width);
+                    return SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                        pagePadding.left,
+                        insets.top,
+                        pagePadding.right,
+                        insets.bottom,
+                      ),
+                      child: TaskerResponsiveContent(
+                        width: width,
+                        child: _buildBody(width, task),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
           ),
           Positioned.fill(
             child: ConfirmDeleteDialog(
@@ -316,7 +327,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   Widget _buildErrandListCard(List<String> items) {
     return TaskSectionCard(
       title: errandListSummaryLabel,
-      icon: Icons.checklist_rounded,
+      icon: HugeIcons.strokeRoundedCheckList,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -356,8 +367,8 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   Widget _buildDoneTile(Task task) {
     return TaskSectionActionTile(
       icon: task.done
-          ? Icons.check_circle_rounded
-          : Icons.radio_button_unchecked,
+          ? HugeIcons.strokeRoundedCheckmarkCircle01
+          : HugeIcons.strokeRoundedRecord,
       title: task.done ? 'Tarefa concluída' : 'Marcar como concluída',
       subtitle: task.done
           ? 'Toque para voltar ao status pendente'
@@ -365,8 +376,10 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
       active: task.done,
       loading: _togglingDone,
       onTap: _toggleDone,
-      trailing: Icon(
-        task.done ? Icons.undo_rounded : Icons.check_rounded,
+      trailing: AppHugeIcon(
+        icon: task.done
+            ? HugeIcons.strokeRoundedUndo
+            : HugeIcons.strokeRoundedTick01,
         color: TaskerColors.primary,
         size: 24,
       ),
@@ -376,12 +389,12 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   Widget _buildScheduleSection(double width, Task task) {
     final stackFields = width < 400;
     final dateTile = _InfoTile(
-      icon: Icons.calendar_today_outlined,
+      icon: HugeIcons.strokeRoundedCalendar01,
       label: 'Data',
       value: _formatTaskDate(task.data),
     );
     final timeTile = _InfoTile(
-      icon: Icons.schedule_rounded,
+      icon: HugeIcons.strokeRoundedTimeSchedule,
       label: 'Hora',
       value: task.hora.isEmpty ? 'Sem horário' : task.hora,
       muted: task.hora.isEmpty,
@@ -389,7 +402,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
 
     return TaskSectionCard(
       title: 'Agendamento',
-      icon: Icons.event_available_outlined,
+      icon: HugeIcons.strokeRoundedCalendarCheckIn01,
       child: stackFields
           ? Column(
               children: [
@@ -411,7 +424,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   Widget _buildLocationCard(Task task) {
     return TaskSectionCard(
       title: 'Localização',
-      icon: Icons.place_outlined,
+      icon: HugeIcons.strokeRoundedMapsLocation01,
       child: _LocationSection(
         task: task,
         address: _address,
@@ -424,17 +437,17 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   Widget _buildHistorySection(Task task) {
     return TaskSectionCard(
       title: 'Histórico',
-      icon: Icons.history_rounded,
+      icon: HugeIcons.strokeRoundedWorkHistory,
       child: Column(
         children: [
           _MetaLine(
-            icon: Icons.add_circle_outline,
+            icon: HugeIcons.strokeRoundedAddCircle,
             label: 'Criada em',
             value: _formatDateTime(task.createdAt),
           ),
           const SizedBox(height: 10),
           _MetaLine(
-            icon: Icons.update_rounded,
+            icon: HugeIcons.strokeRoundedRefresh,
             label: 'Atualizada em',
             value: _formatDateTime(task.lastUpdated),
           ),
@@ -452,7 +465,7 @@ class _InfoTile extends StatelessWidget {
     this.muted = false,
   });
 
-  final IconData icon;
+  final TaskerIconGlyph icon;
   final String label;
   final String value;
   final bool muted;
@@ -472,7 +485,7 @@ class _InfoTile extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon, size: 17, color: TaskerColors.primary),
+                TaskerIcon(icon: icon, size: 17, color: TaskerColors.primary),
                 const SizedBox(width: 6),
                 Text(
                   label,
@@ -511,7 +524,7 @@ class _MetaLine extends StatelessWidget {
     required this.value,
   });
 
-  final IconData icon;
+  final TaskerIconGlyph icon;
   final String label;
   final String value;
 
@@ -522,7 +535,7 @@ class _MetaLine extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 2),
-          child: Icon(icon, size: 20, color: TaskerColors.primary),
+          child: TaskerIcon(icon: icon, size: 20, color: TaskerColors.primary),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -641,7 +654,7 @@ class _LocationSection extends StatelessWidget {
           width: double.infinity,
           child: OutlinedButton.icon(
             onPressed: onOpenRoute,
-            icon: const Icon(Icons.directions_outlined),
+            icon: const AppHugeIcon(icon: HugeIcons.strokeRoundedDirections01),
             label: const Text('Abrir rota no mapa'),
           ),
         ),
@@ -666,8 +679,7 @@ class _EmptyLocationState extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.location_off_outlined,
+            AppHugeIcon(icon: HugeIcons.strokeRoundedLocationOffline01,
               size: 24,
               color: TaskerColors.mutedText.withValues(alpha: 0.85),
             ),
@@ -744,30 +756,13 @@ class _LocationPreviewMap extends StatelessWidget {
                 ),
                 IgnorePointer(
                   child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.location_on,
-                          size: 40,
-                          color: TaskerColors.primary,
-                          shadows: const [
-                            Shadow(
-                              color: Color(0x40000000),
-                              blurRadius: 6,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        Container(
-                          width: 10,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-                      ],
+                    child: Transform.translate(
+                      offset: TaskerMapPin.centerAnchorOffset(28),
+                      child: const TaskerMapPin(
+                        fillColor: TaskerColors.primary,
+                        size: 28,
+                        showGroundShadow: true,
+                      ),
                     ),
                   ),
                 ),

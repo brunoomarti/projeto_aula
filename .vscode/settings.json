@@ -1,3 +1,4 @@
 {
-  "dart.flutterHotReloadOnSave": "allIfDirty"
+  "dart.flutterHotReloadOnSave": "allIfDirty",
+  "java.configuration.updateBuildConfiguration": "interactive"
 }

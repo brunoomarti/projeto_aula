@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../../app/theme/tasker_card_style.dart';
 import '../../../../app/theme/tasker_colors.dart';
+import '../../../../core/icons/tasker_icon.dart';
+import '../../../../core/icons/tasker_icon_glyph.dart';
 
 /// Shell visual de card de seção — padding, raio, sombra e fundo unificados.
 class TaskSectionCardShell extends StatelessWidget {
@@ -27,6 +29,7 @@ class TaskSectionCardShell extends StatelessWidget {
       color: TaskerCardStyle.background,
       elevation: TaskerCardStyle.elevation,
       shadowColor: TaskerCardStyle.shadowColor,
+      surfaceTintColor: Colors.transparent,
       shape: TaskerCardStyle.shape,
       clipBehavior: Clip.antiAlias,
       child: onTap == null
@@ -51,7 +54,7 @@ class TaskSectionCard extends StatelessWidget {
   });
 
   final String title;
-  final IconData icon;
+  final TaskerIconGlyph icon;
   final Widget child;
 
   @override
@@ -62,7 +65,7 @@ class TaskSectionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 20, color: TaskerColors.primary),
+              TaskerIcon(icon: icon, size: 20, color: TaskerColors.primary),
               const SizedBox(width: 8),
               Text(title, style: TaskerCardStyle.sectionTitle),
             ],
@@ -88,7 +91,7 @@ class TaskSectionActionTile extends StatelessWidget {
     this.onTap,
   });
 
-  final IconData icon;
+  final TaskerIconGlyph icon;
   final String title;
   final String subtitle;
   final Widget trailing;
@@ -105,6 +108,7 @@ class TaskSectionActionTile extends StatelessWidget {
           Container(
             width: TaskerCardStyle.actionIconBoxSize,
             height: TaskerCardStyle.actionIconBoxSize,
+            alignment: Alignment.center,
             decoration: BoxDecoration(
               color: active
                   ? TaskerColors.primary.withValues(alpha: 0.12)
@@ -117,8 +121,8 @@ class TaskSectionActionTile extends StatelessWidget {
                     padding: EdgeInsets.all(12),
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Icon(
-                    icon,
+                : TaskerIcon(
+                    icon: icon,
                     color: active ? TaskerColors.primary : TaskerColors.mutedText,
                     size: 26,
                   ),

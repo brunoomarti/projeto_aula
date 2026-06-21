@@ -36,6 +36,7 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  hugeicons: ^1.1.7
   flutter_map: ^8.1.1
   geolocator: ^14.0.2
   http: ^1.4.0
@@ -47,6 +48,17 @@ dependencies:
   speech_to_text: ^7.4.0
   flutter_dotenv: ^6.0.1
   url_launcher: ^6.3.2
+  firebase_core: ^4.10.0
+  firebase_auth: ^6.5.2
+  google_sign_in: ^7.2.0
+  supabase_flutter: ^2.12.4
+  connectivity_plus: ^7.1.1
+  flutter_local_notifications: ^18.0.1
+  home_widget: ^0.7.0
+  tasker_nlp:
+    path: packages/tasker_nlp
+  image_picker: ^1.2.2
+  image_cropper: ^12.2.1
 
 dev_dependencies:
   flutter_test:
@@ -58,6 +70,15 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icons/app_icon_1024.png
+  adaptive_icon_background: "#2864F0"
+  adaptive_icon_foreground: assets/icons/app_icon_1024.png
+  remove_alpha_ios: true
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -72,6 +93,7 @@ flutter:
 
   assets:
     - .env
+    - assets/icons/app_icon_face_512.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

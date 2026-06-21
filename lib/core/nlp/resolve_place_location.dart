@@ -1,11 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'package:tasker_nlp/tasker_nlp.dart';
 
 import 'dart:math' as math;
 
 import '../../features/tasks/domain/address_suggestion.dart';
 import '../../features/tasks/domain/task.dart';
 import '../services/geocode_service.dart';
-import 'extract_place_pt_br.dart';
 
 /// Resultado da resolução de local via geocoding.
 class ResolvedPlace {

@@ -1,4 +1,8 @@
 import 'package:flutter/physics.dart';
+import 'package:tasker_project/core/icons/tasker_icon.dart';
+
+import 'package:hugeicons/hugeicons.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../domain/task.dart';
@@ -203,7 +207,7 @@ class _SwipeableTaskCardState extends State<SwipeableTaskCard>
                         child: _SwipeActionButton(
                           progress: progressRight,
                           color: const Color(0xFFE15E5B),
-                          icon: Icons.delete_outline,
+                          icon: HugeIcons.strokeRoundedDelete01,
                           iconColor: Colors.white,
                           cardHeight: cardHeight,
                         ),
@@ -216,7 +220,7 @@ class _SwipeableTaskCardState extends State<SwipeableTaskCard>
                         child: _SwipeActionButton(
                           progress: progressLeft,
                           color: TaskCardTokens.doneAccent,
-                          icon: Icons.check,
+                          icon: HugeIcons.strokeRoundedCheckmarkCircle02,
                           iconColor: Colors.white,
                           cardHeight: cardHeight,
                         ),
@@ -277,17 +281,20 @@ class _SwipeActionButton extends StatelessWidget {
     required this.cardHeight,
   });
 
+  static const _iconSize = 20.0;
+  static const _strokeWidth = 2.35;
+
   final double progress;
   final Color color;
-  final IconData icon;
+  final List<List<dynamic>> icon;
   final Color iconColor;
   final double cardHeight;
 
   @override
   Widget build(BuildContext context) {
-    final width = _lerp(48, 70, progress);
-    final height = _lerp(cardHeight * 0.84, cardHeight * 0.92, progress);
-    final radius = _lerp(24, 16, progress);
+    final width = _lerp(44, 62, progress);
+    final height = _lerp(cardHeight * 0.78, cardHeight * 0.88, progress);
+    final radius = _lerp(22, 14, progress);
 
     return IgnorePointer(
       child: Opacity(
@@ -299,7 +306,23 @@ class _SwipeActionButton extends StatelessWidget {
           child: SizedBox(
             width: width,
             height: height,
-            child: Icon(icon, color: iconColor, size: 22),
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: _lerp(10, 14, progress),
+                    vertical: _lerp(8, 10, progress),
+                  ),
+                  child: AppHugeIcon(
+                    icon: icon,
+                    color: iconColor,
+                    size: _iconSize,
+                    strokeWidth: _strokeWidth,
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

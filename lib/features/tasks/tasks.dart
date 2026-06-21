@@ -1,4 +1,6 @@
-export 'domain/task_icon_catalog.dart';
+export 'domain/home_list_entry.dart';
+export 'domain/pilha.dart';
+export 'presentation/widgets/pilha_stack_card.dart';
 export 'presentation/state/task_store.dart';
 export 'presentation/widgets/task_icon_picker_section.dart';
 export 'domain/task.dart';

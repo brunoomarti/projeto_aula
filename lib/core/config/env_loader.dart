@@ -20,6 +20,12 @@ Future<void> loadEnv() async {
         'Será usado NLP local.',
       );
     }
+    if (!EnvConfig.isSupabaseConfigured) {
+      debugPrint(
+        'Env: SUPABASE_URL ou SUPABASE_ANON_KEY vazio. '
+        'Login e sincronização na nuvem não funcionarão.',
+      );
+    }
   } catch (e) {
     debugPrint(
       'Env: não foi possível carregar .env ($e). '

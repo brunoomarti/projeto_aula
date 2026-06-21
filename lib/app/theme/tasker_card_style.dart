@@ -7,7 +7,7 @@ abstract final class TaskerCardStyle {
   static const Color background = Color(0xFFFAFAFA);
   static const double borderRadius = 20;
   static const double elevation = 2;
-  static const Color shadowColor = Color(0x12000000);
+  static const Color shadowColor = Color.fromARGB(99, 0, 0, 0);
   static const Color splashColor = Color(0x1A000000);
   static const Color highlightColor = Color(0x0D000000);
 

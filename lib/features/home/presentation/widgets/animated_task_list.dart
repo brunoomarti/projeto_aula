@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../tasks/presentation/widgets/task_stack_drag.dart';
+
 /// Lista vertical que anima o deslocamento quando a ordem dos itens muda.
 class AnimatedTaskList<T> extends StatefulWidget {
   const AnimatedTaskList({
@@ -9,8 +11,13 @@ class AnimatedTaskList<T> extends StatefulWidget {
     required this.itemBuilder,
     this.separatorExtent = 12,
     this.padding = EdgeInsets.zero,
+    this.scrollController,
     this.animationDuration = const Duration(milliseconds: 380),
     this.animationCurve = Curves.easeInOutCubic,
+    this.showExtractSlots = false,
+    this.canAcceptExtract,
+    this.onExtractDrop,
+    this.extractSlotHeight = 36,
   });
 
   final List<T> items;
@@ -18,8 +25,15 @@ class AnimatedTaskList<T> extends StatefulWidget {
   final Widget Function(BuildContext context, T item) itemBuilder;
   final double separatorExtent;
   final EdgeInsetsGeometry padding;
+  final ScrollController? scrollController;
   final Duration animationDuration;
   final Curve animationCurve;
+
+  /// Exibe faixas de soltura entre itens para remover tarefa da pilha.
+  final bool showExtractSlots;
+  final bool Function(TaskDragData data)? canAcceptExtract;
+  final ValueChanged<TaskDragData>? onExtractDrop;
+  final double extractSlotHeight;
 
   @override
   State<AnimatedTaskList<T>> createState() => _AnimatedTaskListState<T>();
@@ -59,6 +73,14 @@ class _AnimatedTaskListState<T> extends State<AnimatedTaskList<T>>
   @override
   void didUpdateWidget(covariant AnimatedTaskList<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.showExtractSlots != widget.showExtractSlots) {
+      _itemHeights.clear();
+      _activeOffsets = const {};
+      if (_controller.isAnimating) {
+        _controller.stop();
+      }
+    }
 
     final oldIds = oldWidget.items.map(widget.itemId).toList();
     final newIds = widget.items.map(widget.itemId).toList();
@@ -207,14 +229,26 @@ class _AnimatedTaskListState<T> extends State<AnimatedTaskList<T>>
   @override
   Widget build(BuildContext context) {
     final items = _orderedItems;
+    final showSlots = widget.showExtractSlots &&
+        widget.canAcceptExtract != null &&
+        widget.onExtractDrop != null;
 
     return ListView.separated(
-      // Permite que o card deslize para dentro da área de padding lateral.
+      controller: widget.scrollController,
       clipBehavior: Clip.none,
       padding: widget.padding,
       itemCount: items.length,
-      separatorBuilder: (context, index) =>
-          SizedBox(height: widget.separatorExtent),
+      separatorBuilder: (context, index) {
+        if (showSlots) {
+          return TaskListInsertDropSlot(
+            collapsedHeight: widget.separatorExtent,
+            expandedHeight: widget.extractSlotHeight,
+            canAccept: widget.canAcceptExtract!,
+            onAccept: widget.onExtractDrop!,
+          );
+        }
+        return SizedBox(height: widget.separatorExtent);
+      },
       itemBuilder: (context, index) {
         final item = items[index];
         final id = widget.itemId(item);
@@ -233,6 +267,36 @@ class _AnimatedTaskListState<T> extends State<AnimatedTaskList<T>>
               );
             },
             child: child,
+          );
+        }
+
+        if (showSlots && index == 0) {
+          child = Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TaskListInsertDropSlot(
+                collapsedHeight: widget.separatorExtent,
+                expandedHeight: widget.extractSlotHeight,
+                canAccept: widget.canAcceptExtract!,
+                onAccept: widget.onExtractDrop!,
+              ),
+              child,
+            ],
+          );
+        }
+
+        if (showSlots && index == items.length - 1) {
+          child = Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              child,
+              TaskListInsertDropSlot(
+                collapsedHeight: widget.separatorExtent,
+                expandedHeight: widget.extractSlotHeight,
+                canAccept: widget.canAcceptExtract!,
+                onAccept: widget.onExtractDrop!,
+              ),
+            ],
           );
         }
 

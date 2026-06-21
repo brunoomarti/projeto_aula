@@ -34,10 +34,12 @@ Após adicionar plugins nativos (`geolocator`, `shared_preferences`, `speech_to_
 
 ```bash
 flutter test
+dart test packages/tasker_nlp
 ```
 
 ## Estrutura
 
 - `lib/features/` — módulos (home, tasks, profile)
 - `lib/app/` — shell, tema
-- `lib/core/` — NLP, serviços, layout
+- `lib/core/` — serviços, layout, geocoding
+- `packages/tasker_nlp/` — **package interno** de NLP em português (magic input)

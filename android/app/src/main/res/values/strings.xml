@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_title">Tasker — nova tarefa</string>
+    <string name="widget_input_hint">Toque para criar uma tarefa…</string>
+    <string name="widget_submit">Criar tarefa</string>
+    <string name="widget_description">Crie tarefas rápidas sem abrir o app</string>
+    <string name="widget_requires_android_12">Requer Android 12+ para digitar no widget</string>
+    <string name="widget_create_button">Criar nova tarefa</string>
+    <string name="widget_loading">Criando tarefa…</string>
+    <string name="widget_success">Tarefa criada!</string>
+    <string name="widget_error">Não foi possível criar</string>
+    <string name="widget_app_icon_desc">Ícone do Tasker</string>
+</resources>

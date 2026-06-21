@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'package:tasker_project/core/icons/tasker_icon.dart';
+
+import 'package:hugeicons/hugeicons.dart';
+
 import '../../../../app/theme/tasker_colors.dart';
 import 'complete_input.dart';
 
@@ -60,8 +64,7 @@ class TaskErrandListFields extends StatelessWidget {
                   onPressed: enabled ? () => onRemove(i) : null,
                   tooltip: 'Remover afazer',
                   visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    Icons.remove_circle_outline,
+                  icon: AppHugeIcon(icon: HugeIcons.strokeRoundedRemoveCircle,
                     size: 22,
                     color: enabled
                         ? TaskerColors.secondaryText.withValues(alpha: 0.75)
@@ -77,7 +80,7 @@ class TaskErrandListFields extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
             onPressed: enabled ? onAdd : null,
-            icon: const Icon(Icons.add, size: 20),
+            icon: const AppHugeIcon(icon: HugeIcons.strokeRoundedAdd01, size: 20),
             label: const Text('Adicionar afazer'),
             style: TextButton.styleFrom(
               foregroundColor: TaskerColors.primary,

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:hugeicons/hugeicons.dart';
+
+import '../../core/icons/tasker_icon.dart';
 import '../../core/layout/tasker_breakpoints.dart';
 import '../theme/tasker_colors.dart';
 
@@ -11,8 +14,8 @@ class AppDockDestination {
     required this.label,
   });
 
-  final IconData icon;
-  final IconData selectedIcon;
+  final List<List<dynamic>> icon;
+  final List<List<dynamic>> selectedIcon;
   final String label;
 }
 
@@ -31,13 +34,13 @@ class AppDock extends StatelessWidget {
 
   static const List<AppDockDestination> kAppDockDestinations = [
     AppDockDestination(
-      icon: Icons.home_outlined,
-      selectedIcon: Icons.home,
+      icon: HugeIcons.strokeRoundedHome01,
+      selectedIcon: HugeIcons.strokeRoundedHome03,
       label: 'Início',
     ),
     AppDockDestination(
-      icon: Icons.person_outline,
-      selectedIcon: Icons.person,
+      icon: HugeIcons.strokeRoundedUser,
+      selectedIcon: HugeIcons.strokeRoundedUser,
       label: 'Perfil',
     ),
   ];
@@ -117,7 +120,7 @@ class _DockItem extends StatelessWidget {
     required this.onTap,
   });
 
-  final IconData icon;
+  final List<List<dynamic>> icon;
   final String label;
   final bool selected;
   final bool showLabel;
@@ -146,7 +149,7 @@ class _DockItem extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon, color: color, size: 26),
+                    AppHugeIcon(icon: icon, color: color, size: 26),
                     const SizedBox(height: 4),
                     Text(
                       label,
@@ -160,7 +163,7 @@ class _DockItem extends StatelessWidget {
                     ),
                   ],
                 )
-              : Icon(icon, color: color, size: 28),
+              : AppHugeIcon(icon: icon, color: color, size: 28),
         ),
       ),
     );

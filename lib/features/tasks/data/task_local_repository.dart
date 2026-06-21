@@ -22,6 +22,18 @@ class TaskLocalRepository {
     return null;
   }
 
+  /// Força releitura do disco. O [SharedPreferences] faz cache em memória por
+  /// isolate; sem isso, gravações feitas por outro isolate (ex.: widget em
+  /// background) não são visíveis até reiniciar o app.
+  Future<void> reloadFromDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+    } catch (e, st) {
+      debugPrint('TaskLocalRepository.reloadFromDisk: $e\n$st');
+    }
+  }
+
   static Map<String, dynamic> _normalizeTaskMap(dynamic item) {
     final map = Map<String, dynamic>.from(item as Map);
     final loc = map['location'];

@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'package:tasker_project/core/icons/tasker_icon.dart';
+
+import 'package:hugeicons/hugeicons.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -8,6 +12,7 @@ import '../../../../core/layout/tasker_breakpoints.dart';
 import '../../../../app/theme/tasker_colors.dart';
 import '../../../../core/services/geocode_service.dart';
 import '../../../../core/services/location_service.dart';
+import '../../../../core/widgets/tasker_map_pin.dart';
 import '../../domain/address_suggestion.dart';
 import '../../domain/task.dart';
 import 'complete_input.dart';
@@ -260,7 +265,7 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
                       child: IgnorePointer(
                         ignoring: !_mapReady,
                         child: _MapControlButton(
-                          icon: Icons.my_location,
+                          icon: HugeIcons.strokeRoundedGps01,
                           tooltip: 'Minha localização',
                           loading: _gpsLoading,
                           onPressed: _loadDeviceLocation,
@@ -276,13 +281,13 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             _MapControlButton(
-                              icon: Icons.add,
+                              icon: HugeIcons.strokeRoundedAdd01,
                               tooltip: 'Aumentar zoom',
                               onPressed: () => _zoomBy(1),
                             ),
                             const SizedBox(height: 4),
                             _MapControlButton(
-                              icon: Icons.remove,
+                              icon: HugeIcons.strokeRoundedRemove01,
                               tooltip: 'Diminuir zoom',
                               onPressed: () => _zoomBy(-1),
                             ),
@@ -293,17 +298,10 @@ class _LocationMapSurfaceState extends State<_LocationMapSurface> {
                     IgnorePointer(
                       child: Center(
                         child: Transform.translate(
-                          offset: const Offset(0, -18),
-                          child: Icon(
-                            Icons.location_on,
-                            size: 44,
-                            color: TaskerColors.primary,
-                            shadows: const [
-                              Shadow(
-                                blurRadius: 4,
-                                color: Color(0x44000000),
-                              ),
-                            ],
+                          offset: TaskerMapPin.centerAnchorOffset(32),
+                          child: const TaskerMapPin(
+                            fillColor: TaskerColors.primary,
+                            size: 32,
                           ),
                         ),
                       ),
@@ -443,8 +441,7 @@ class _AddressSearchFieldState extends State<_AddressSearchField> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     )
-                  : const Icon(
-                      Icons.search,
+                  : const AppHugeIcon(icon: HugeIcons.strokeRoundedSearch01,
                       color: TaskerColors.mutedText,
                     ),
             ),
@@ -473,10 +470,10 @@ class _AddressSearchFieldState extends State<_AddressSearchField> {
                         item.categoryLabel != 'Endereço';
                     return ListTile(
                       dense: true,
-                      leading: Icon(
-                        isPlace
-                            ? Icons.storefront_outlined
-                            : Icons.place_outlined,
+                      leading: AppHugeIcon(
+                        icon: isPlace
+                            ? HugeIcons.strokeRoundedStore01
+                            : HugeIcons.strokeRoundedMapsLocation01,
                         color: TaskerColors.primary,
                         size: 22,
                       ),
@@ -532,7 +529,7 @@ class _MapControlButton extends StatelessWidget {
     this.loading = false,
   });
 
-  final IconData icon;
+  final List<List<dynamic>> icon;
   final String tooltip;
   final VoidCallback? onPressed;
   final bool loading;
@@ -556,7 +553,7 @@ class _MapControlButton extends StatelessWidget {
           : IconButton(
               onPressed: onPressed,
               tooltip: tooltip,
-              icon: Icon(icon, size: 20, color: TaskerColors.primary),
+              icon: AppHugeIcon(icon: icon, size: 20, color: TaskerColors.primary),
               padding: const EdgeInsets.all(6),
               constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               style: IconButton.styleFrom(

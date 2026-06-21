@@ -101,6 +101,21 @@ class Task {
     this.iconKey,
     /// ARGB da cor de fundo do ícone (`Color.toARGB32()`). Null = padrão do app.
     this.iconBackgroundArgb,
+    /// `true` quando a versão local já está refletida na nuvem (Supabase).
+    /// `false` = alteração pendente de envio (offline ou erro de rede).
+    /// Campo apenas local — não é gravado no Supabase.
+    this.synced = true,
+    /// ID da [Pilha] à qual a tarefa pertence. Apenas local por enquanto.
+    this.pilhaId,
+    /// Tarefa teve a data alterada após o período de tolerância (1 h).
+    /// Não conta para o combo diário.
+    this.postponed = false,
+    /// A data agendada foi alterada em qualquer momento (inclui tentativa de burlar < 1 h).
+    this.scheduleAdjusted = false,
+    /// Momento em que a tarefa foi marcada como concluída pela última vez.
+    this.completedAt,
+    /// Tarefa criada pelo Magic Input (entrada inteligente).
+    this.createdViaMagic = false,
   });
 
   final String id;
@@ -115,6 +130,12 @@ class Task {
   final bool deleted;
   final String? iconKey;
   final int? iconBackgroundArgb;
+  final bool synced;
+  final String? pilhaId;
+  final bool postponed;
+  final bool scheduleAdjusted;
+  final DateTime? completedAt;
+  final bool createdViaMagic;
 
   String get displayDescription {
     final t = descricao.trim();
@@ -134,6 +155,14 @@ class Task {
     bool? deleted,
     String? iconKey,
     int? iconBackgroundArgb,
+    bool? synced,
+    String? pilhaId,
+    bool clearPilhaId = false,
+    bool? postponed,
+    bool? scheduleAdjusted,
+    DateTime? completedAt,
+    bool clearCompletedAt = false,
+    bool? createdViaMagic,
   }) {
     return Task(
       id: id ?? this.id,
@@ -148,6 +177,13 @@ class Task {
       deleted: deleted ?? this.deleted,
       iconKey: iconKey ?? this.iconKey,
       iconBackgroundArgb: iconBackgroundArgb ?? this.iconBackgroundArgb,
+      synced: synced ?? this.synced,
+      pilhaId: clearPilhaId ? null : (pilhaId ?? this.pilhaId),
+      postponed: postponed ?? this.postponed,
+      scheduleAdjusted: scheduleAdjusted ?? this.scheduleAdjusted,
+      completedAt:
+          clearCompletedAt ? null : (completedAt ?? this.completedAt),
+      createdViaMagic: createdViaMagic ?? this.createdViaMagic,
     );
   }
 
@@ -174,6 +210,12 @@ class Task {
       deleted: json['_deleted'] as bool? ?? false,
       iconKey: json['iconKey'] as String?,
       iconBackgroundArgb: _parseIconBackgroundArgb(json['iconBackgroundArgb']),
+      synced: json['_synced'] as bool? ?? true,
+      pilhaId: json['pilhaId'] as String?,
+      postponed: json['postponed'] as bool? ?? false,
+      scheduleAdjusted: json['scheduleAdjusted'] as bool? ?? false,
+      completedAt: parseDate(json['completedAt']),
+      createdViaMagic: json['createdViaMagic'] as bool? ?? false,
     );
   }
 
@@ -183,6 +225,59 @@ class Task {
     if (raw is num) return raw.toInt();
     return int.tryParse('$raw');
   }
+
+  factory Task.fromSupabaseRow(Map<String, dynamic> row) {
+    DateTime? parseTs(dynamic v) {
+      if (v == null) return null;
+      if (v is DateTime) return v;
+      if (v is String) return DateTime.tryParse(v);
+      return null;
+    }
+
+    final loc = TaskLocation.tryParse(row['location']);
+
+    return Task(
+      id: '${row['id'] ?? ''}',
+      title: row['title'] as String? ?? '',
+      descricao: row['descricao'] as String? ?? '',
+      data: row['data'] as String? ?? '',
+      hora: row['hora'] as String? ?? '',
+      done: row['done'] as bool? ?? false,
+      createdAt: parseTs(row['created_at']),
+      lastUpdated: parseTs(row['last_updated']),
+      location: loc,
+      deleted: row['deleted'] as bool? ?? false,
+      iconKey: row['icon_key'] as String?,
+      iconBackgroundArgb: _parseIconBackgroundArgb(row['icon_background_argb']),
+      synced: true,
+      postponed: row['postponed'] as bool? ?? false,
+      scheduleAdjusted: row['schedule_adjusted'] as bool? ?? false,
+      completedAt: parseTs(row['completed_at']),
+      createdViaMagic: row['created_via_magic'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toSupabaseRow(String userId) => {
+        'id': id,
+        'user_id': userId,
+        'title': title,
+        'descricao': descricao,
+        'data': data,
+        'hora': hora,
+        'done': done,
+        'created_at': (createdAt ?? DateTime.now()).toUtc().toIso8601String(),
+        'last_updated': (lastUpdated ?? DateTime.now()).toUtc().toIso8601String(),
+        'location': location?.toJson(),
+        'deleted': deleted,
+        'postponed': postponed,
+        'schedule_adjusted': scheduleAdjusted,
+        if (completedAt != null)
+          'completed_at': completedAt!.toUtc().toIso8601String(),
+        'created_via_magic': createdViaMagic,
+        if (iconKey != null) 'icon_key': iconKey,
+        if (iconBackgroundArgb != null)
+          'icon_background_argb': iconBackgroundArgb,
+      };
 
   /// JSON gravado no dispositivo (sem campos de nuvem/sync).
   Map<String, dynamic> toLocalJson() => {
@@ -196,8 +291,14 @@ class Task {
         if (lastUpdated != null) 'lastUpdated': lastUpdated!.toIso8601String(),
         if (location != null) 'location': location!.toJson(),
         '_deleted': deleted,
+        '_synced': synced,
+        'postponed': postponed,
+        'scheduleAdjusted': scheduleAdjusted,
+        if (completedAt != null) 'completedAt': completedAt!.toIso8601String(),
+        if (createdViaMagic) 'createdViaMagic': true,
         if (iconKey != null) 'iconKey': iconKey,
         if (iconBackgroundArgb != null)
           'iconBackgroundArgb': iconBackgroundArgb,
+        if (pilhaId != null) 'pilhaId': pilhaId,
       };
 }

@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'package:tasker_project/core/icons/tasker_icon.dart';
+import 'package:tasker_project/core/icons/tasker_icon_glyph.dart';
+
+import 'package:hugeicons/hugeicons.dart';
+
 import 'task.dart';
 
 /// Par de cores para o quadrado do ícone (fundo claro + ícone escuro).
@@ -24,7 +29,7 @@ class TaskIconOption {
   });
 
   final String key;
-  final IconData icon;
+  final TaskerIconGlyph icon;
   final String label;
 }
 
@@ -90,81 +95,94 @@ abstract final class TaskIconCatalog {
   ];
 
   static const List<TaskIconOption> icons = [
-    TaskIconOption(key: 'home', icon: Icons.home_outlined, label: 'Casa'),
+    TaskIconOption(
+      key: 'home',
+      icon: HugeIcons.strokeRoundedGuestHouse,
+      label: 'Casa',
+    ),
     TaskIconOption(
       key: 'gym',
-      icon: Icons.fitness_center_outlined,
+      icon: HugeIcons.strokeRoundedDumbbell01,
       label: 'Academia',
     ),
     TaskIconOption(
       key: 'ball_sports',
-      icon: Icons.sports_soccer_outlined,
+      icon: HugeIcons.strokeRoundedFootball,
       label: 'Esporte com bola',
     ),
     TaskIconOption(
       key: 'swimming',
-      icon: Icons.pool_outlined,
+      icon: HugeIcons.strokeRoundedSwimming,
       label: 'Natação',
     ),
     TaskIconOption(
       key: 'market',
-      icon: Icons.shopping_cart_outlined,
+      icon: HugeIcons.strokeRoundedShoppingCart01,
       label: 'Mercado',
     ),
     TaskIconOption(
       key: 'shopping',
-      icon: Icons.shopping_bag_outlined,
+      icon: HugeIcons.strokeRoundedShoppingBag01,
       label: 'Compras',
     ),
     TaskIconOption(
       key: 'food',
-      icon: Icons.restaurant_outlined,
+      icon: HugeIcons.strokeRoundedDish02,
       label: 'Comida',
     ),
     TaskIconOption(
       key: 'people',
-      icon: Icons.groups_outlined,
+      icon: HugeIcons.strokeRoundedUserGroup,
       label: 'Pessoas',
     ),
-    TaskIconOption(key: 'tree', icon: Icons.park_outlined, label: 'Natureza'),
+    TaskIconOption(key: 'tree', icon: TaskIcon.treesIcon, label: 'Natureza'),
     TaskIconOption(
       key: 'walk',
-      icon: Icons.directions_walk_outlined,
+      icon: HugeIcons.strokeRoundedWorkoutRun,
       label: 'Caminhada',
     ),
-    TaskIconOption(key: 'work', icon: Icons.work_outline, label: 'Trabalho'),
-    TaskIconOption(key: 'study', icon: Icons.school_outlined, label: 'Estudo'),
+    TaskIconOption(key: 'work', icon: HugeIcons.strokeRoundedBriefcase01, label: 'Trabalho'),
+    TaskIconOption(
+      key: 'study',
+      icon: HugeIcons.strokeRoundedMortarboard01,
+      label: 'Estudo',
+    ),
     TaskIconOption(
       key: 'health',
-      icon: Icons.medical_services_outlined,
+      icon: HugeIcons.strokeRoundedHealth,
       label: 'Saúde',
     ),
-    TaskIconOption(key: 'pets', icon: Icons.pets_outlined, label: 'Pets'),
-    TaskIconOption(key: 'travel', icon: Icons.flight_outlined, label: 'Viagem'),
-    TaskIconOption(key: 'event', icon: Icons.event_outlined, label: 'Evento'),
+    TaskIconOption(key: 'pets', icon: TaskIcon.catIcon, label: 'Pets'),
+    TaskIconOption(
+      key: 'leisure',
+      icon: TaskIcon.dramaIcon,
+      label: 'Lazer',
+    ),
+    TaskIconOption(key: 'travel', icon: HugeIcons.strokeRoundedAirplane01, label: 'Viagem'),
+    TaskIconOption(key: 'event', icon: HugeIcons.strokeRoundedCalendar03, label: 'Evento'),
     TaskIconOption(
       key: 'repair',
-      icon: Icons.build_outlined,
+      icon: HugeIcons.strokeRoundedTools,
       label: 'Manutenção',
     ),
     TaskIconOption(
       key: 'clothing',
-      icon: Icons.checkroom_outlined,
+      icon: HugeIcons.strokeRoundedHanger,
       label: 'Roupa',
     ),
     TaskIconOption(
       key: 'beauty',
-      icon: Icons.spa_outlined,
+      icon: HugeIcons.strokeRoundedPerfume,
       label: 'Beleza',
     ),
     TaskIconOption(
       key: 'faith',
-      icon: Icons.church_outlined,
+      icon: HugeIcons.strokeRoundedChurch,
       label: 'Fé',
     ),
     TaskIconOption(
       key: 'task',
-      icon: Icons.task_alt_outlined,
+      icon: HugeIcons.strokeRoundedTask01,
       label: 'Tarefa',
     ),
   ];
@@ -177,7 +195,7 @@ abstract final class TaskIconCatalog {
     );
   }
 
-  static IconData iconFor(Task task) => optionForKey(task.iconKey).icon;
+  static TaskerIconGlyph iconFor(Task task) => optionForKey(task.iconKey).icon;
 
   static String labelFor(Task task) => optionForKey(task.iconKey).label;
 
