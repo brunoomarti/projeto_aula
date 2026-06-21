@@ -143,6 +143,9 @@ class AchievementSupabaseRepository {
     if (key.startsWith('magic_input:')) {
       return AchievementTrailId.magicInput;
     }
+    if (key.startsWith('curiosities:')) {
+      return AchievementTrailId.curiosities;
+    }
     return null;
   }
 }

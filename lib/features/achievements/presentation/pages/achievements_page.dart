@@ -82,10 +82,12 @@ class AchievementsPage extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      for (var i = 0; i < AchievementCatalog.trails.length; i++) ...[
+                      for (var i = 0;
+                          i < AchievementCatalog.activeTrails.length;
+                          i++) ...[
                         if (i > 0) const SizedBox(height: 16),
                         AchievementTrailSection(
-                          trail: AchievementCatalog.trails[i],
+                          trail: AchievementCatalog.activeTrails[i],
                         ),
                       ],
                     ],

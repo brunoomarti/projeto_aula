@@ -5,11 +5,13 @@ import 'achievement_progress_applier.dart';
 import 'achievement_progress_state.dart';
 import 'rules/achievement_day_utils.dart';
 import 'rules/days_completed_trail_rules.dart';
+import 'rules/curiosities_trail_rules.dart';
 import 'rules/magic_input_trail_rules.dart';
 import 'rules/pilhas_created_trail_rules.dart';
 import 'rules/task_advances_trail_rules.dart';
 import 'rules/tasks_created_trail_rules.dart';
 import 'rules/unfinished_tasks_trail_rules.dart';
+import 'achievement_trail_flags.dart';
 
 /// Orquestra a geração de eventos de conquistas a partir das ações do usuário.
 abstract final class AchievementEvaluator {
@@ -18,6 +20,7 @@ abstract final class AchievementEvaluator {
     return [
       ?TasksCreatedTrailRules.eventForNewTask(task),
       ?MagicInputTrailRules.eventForNewTask(task),
+      ?CuriositiesTrailRules.eventForNewTask(task),
     ];
   }
 
@@ -56,14 +59,16 @@ abstract final class AchievementEvaluator {
         : earliest;
 
     for (final day in AchievementDayUtils.daysBetween(start: start, end: today)) {
-      final unfinishedKey = UnfinishedTasksTrailRules.eventKeyForDay(day);
-      if (!state.recordedEventKeys.contains(unfinishedKey)) {
-        final unfinished = UnfinishedTasksTrailRules.eventForDay(
-          day: day,
-          tasks: tasks,
-          now: now,
-        );
-        if (unfinished != null) events.add(unfinished);
+      if (AchievementTrailFlags.unfinishedTasksEnabled) {
+        final unfinishedKey = UnfinishedTasksTrailRules.eventKeyForDay(day);
+        if (!state.recordedEventKeys.contains(unfinishedKey)) {
+          final unfinished = UnfinishedTasksTrailRules.eventForDay(
+            day: day,
+            tasks: tasks,
+            now: now,
+          );
+          if (unfinished != null) events.add(unfinished);
+        }
       }
 
       final completedKey = DaysCompletedTrailRules.eventKeyForDay(day);

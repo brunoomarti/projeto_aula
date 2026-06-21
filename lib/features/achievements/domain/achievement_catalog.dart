@@ -1,6 +1,7 @@
 import 'achievement_medal.dart';
 import 'achievement_trail.dart';
 import 'achievement_trail_id.dart';
+import 'achievement_trail_flags.dart';
 
 /// Catálogo estático de trilhas e medalhas — fonte da verdade das regras de negócio.
 abstract final class AchievementCatalog {
@@ -11,7 +12,13 @@ abstract final class AchievementCatalog {
     taskAdvancesTrail,
     pilhasCreatedTrail,
     unfinishedTasksTrail,
+    curiositiesTrail,
   ];
+
+  /// Trilhas visíveis e ativas na UI / desbloqueio de medalhas.
+  static List<AchievementTrail> get activeTrails => trails
+      .where((trail) => AchievementTrailFlags.isEnabled(trail.id))
+      .toList(growable: false);
 
   static final medalsById = {
     for (final trail in trails)
@@ -348,6 +355,26 @@ abstract final class AchievementCatalog {
     ],
   );
 
+  // ---------------------------------------------------------------------------
+  // Conquistas lendárias — eventos raros e muito específicos (1 ponto cada).
+  // ---------------------------------------------------------------------------
+  static const curiositiesTrail = AchievementTrail(
+    id: AchievementTrailId.curiosities,
+    title: 'Conquistas lendárias',
+    summary:
+        'Medalhas para feitos muito específicos — cada uma exige um momento '
+        'únimo, fora das trilhas comuns.',
+    medals: [
+      AchievementMedal(
+        id: 'curiosity_flag_day',
+        trail: AchievementTrailId.curiosities,
+        threshold: 1,
+        title: 'Ordem e progresso',
+        customMilestoneLabel: 'Criar uma tarefa no dia da bandeira',
+      ),
+    ],
+  );
+
   static List<AchievementMedal> medalsForTrail(AchievementTrailId trail) {
     return trailsById[trail]?.medals ?? const [];
   }
@@ -355,6 +382,7 @@ abstract final class AchievementCatalog {
   static Set<String> unlockedMedalIds(Map<AchievementTrailId, int> points) {
     final unlocked = <String>{};
     for (final trail in trails) {
+      if (!AchievementTrailFlags.isEnabled(trail.id)) continue;
       final score = points[trail.id] ?? 0;
       for (final medal in trail.medals) {
         if (score >= medal.threshold) {

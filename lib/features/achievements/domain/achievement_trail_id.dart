@@ -6,6 +6,7 @@ enum AchievementTrailId {
   daysCompleted,
   pilhasCreated,
   magicInput,
+  curiosities,
 }
 
 extension AchievementTrailIdX on AchievementTrailId {

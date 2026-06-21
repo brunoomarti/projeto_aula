@@ -35,6 +35,9 @@ abstract final class AchievementMilestoneLabel {
           one: '1 tarefa no Magic Input',
           many: '$threshold tarefas no Magic Input',
         ),
+      AchievementTrailId.curiosities => threshold == 1
+          ? '1 conquista lendária'
+          : '$threshold conquistas lendárias',
     };
   }
 

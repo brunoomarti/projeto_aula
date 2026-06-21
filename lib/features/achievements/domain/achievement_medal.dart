@@ -11,6 +11,7 @@ class AchievementMedal {
     required this.trail,
     required this.threshold,
     required this.title,
+    this.customMilestoneLabel,
   });
 
   final String id;
@@ -20,7 +21,11 @@ class AchievementMedal {
   final int threshold;
   final String title;
 
+  /// Marco customizado (trilhas com regras únicas por medalha).
+  final String? customMilestoneLabel;
+
   /// Marco curto exibido no subtítulo após desbloquear.
   String get milestoneLabel =>
+      customMilestoneLabel ??
       AchievementMilestoneLabel.forMedal(trail: trail, threshold: threshold);
 }

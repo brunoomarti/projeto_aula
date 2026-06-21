@@ -7,9 +7,11 @@ import '../../../tasks/domain/task.dart';
 import '../../../tasks/presentation/state/task_store.dart';
 import '../../data/achievement_local_repository.dart';
 import '../../data/achievement_supabase_repository.dart';
+import '../../domain/achievement_catalog.dart';
 import '../../domain/achievement_evaluator.dart';
 import '../../domain/achievement_event.dart';
 import '../../domain/achievement_progress_state.dart';
+import '../../domain/achievement_trail_flags.dart';
 import '../../domain/achievement_trail_id.dart';
 
 /// Estado global das conquistas — offline-first, sincronizado com Supabase.
@@ -284,6 +286,10 @@ class AchievementController extends ChangeNotifier {
     if (newIds.isEmpty) return;
 
     for (final id in newIds) {
+      final medal = AchievementCatalog.medalsById[id];
+      if (medal != null && !AchievementTrailFlags.isEnabled(medal.trail)) {
+        continue;
+      }
       if (!_celebrationQueue.contains(id)) {
         _celebrationQueue.add(id);
       }
