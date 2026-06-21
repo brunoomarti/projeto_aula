@@ -80,7 +80,10 @@ class AchievementProgressState {
       recordedEventKeys: keys,
       unlockedMedalIds: medals.isNotEmpty
           ? medals
-          : AchievementCatalog.unlockedMedalIds(points),
+          : AchievementCatalog.unlockedMedalIds(
+              points,
+              recordedEventKeys: keys,
+            ),
       synced: json['synced'] as bool? ?? true,
     );
   }
@@ -98,7 +101,10 @@ class AchievementProgressState {
         remote.pointsFor(trail),
       );
     }
-    final unlocked = AchievementCatalog.unlockedMedalIds(points);
+    final unlocked = AchievementCatalog.unlockedMedalIds(
+      points,
+      recordedEventKeys: keys,
+    );
     unlocked.addAll(local.unlockedMedalIds);
     unlocked.addAll(remote.unlockedMedalIds);
 

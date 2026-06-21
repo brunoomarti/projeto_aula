@@ -116,6 +116,8 @@ class Task {
     this.completedAt,
     /// Tarefa criada pelo Magic Input (entrada inteligente).
     this.createdViaMagic = false,
+    /// Tarefa criada por fala no Magic Input (microfone).
+    this.createdViaVoice = false,
   });
 
   final String id;
@@ -136,6 +138,7 @@ class Task {
   final bool scheduleAdjusted;
   final DateTime? completedAt;
   final bool createdViaMagic;
+  final bool createdViaVoice;
 
   String get displayDescription {
     final t = descricao.trim();
@@ -163,6 +166,7 @@ class Task {
     DateTime? completedAt,
     bool clearCompletedAt = false,
     bool? createdViaMagic,
+    bool? createdViaVoice,
   }) {
     return Task(
       id: id ?? this.id,
@@ -184,6 +188,7 @@ class Task {
       completedAt:
           clearCompletedAt ? null : (completedAt ?? this.completedAt),
       createdViaMagic: createdViaMagic ?? this.createdViaMagic,
+      createdViaVoice: createdViaVoice ?? this.createdViaVoice,
     );
   }
 
@@ -216,6 +221,7 @@ class Task {
       scheduleAdjusted: json['scheduleAdjusted'] as bool? ?? false,
       completedAt: parseDate(json['completedAt']),
       createdViaMagic: json['createdViaMagic'] as bool? ?? false,
+      createdViaVoice: json['createdViaVoice'] as bool? ?? false,
     );
   }
 
@@ -254,6 +260,7 @@ class Task {
       scheduleAdjusted: row['schedule_adjusted'] as bool? ?? false,
       completedAt: parseTs(row['completed_at']),
       createdViaMagic: row['created_via_magic'] as bool? ?? false,
+      createdViaVoice: row['created_via_voice'] as bool? ?? false,
     );
   }
 
@@ -274,6 +281,7 @@ class Task {
         if (completedAt != null)
           'completed_at': completedAt!.toUtc().toIso8601String(),
         'created_via_magic': createdViaMagic,
+        'created_via_voice': createdViaVoice,
         if (iconKey != null) 'icon_key': iconKey,
         if (iconBackgroundArgb != null)
           'icon_background_argb': iconBackgroundArgb,
@@ -296,6 +304,7 @@ class Task {
         'scheduleAdjusted': scheduleAdjusted,
         if (completedAt != null) 'completedAt': completedAt!.toIso8601String(),
         if (createdViaMagic) 'createdViaMagic': true,
+        if (createdViaVoice) 'createdViaVoice': true,
         if (iconKey != null) 'iconKey': iconKey,
         if (iconBackgroundArgb != null)
           'iconBackgroundArgb': iconBackgroundArgb,

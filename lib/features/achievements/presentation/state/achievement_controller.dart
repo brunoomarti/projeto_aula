@@ -225,10 +225,37 @@ class AchievementController extends ChangeNotifier {
         );
       }
 
+      final voiceStreak = AchievementEvaluator.eventForVoiceStreakCatchUp(
+        tasks: _taskStore.activeTasks,
+        state: _state,
+      );
+      if (voiceStreak != null) events.add(voiceStreak);
+
+      final stampCollector = AchievementEvaluator.eventForStampCollectorCatchUp(
+        tasks: _taskStore.activeTasks,
+        state: _state,
+      );
+      if (stampCollector != null) events.add(stampCollector);
+
+      final apollo13 = AchievementEvaluator.eventForApollo13CatchUp(
+        tasks: _taskStore.activeTasks,
+        state: _state,
+      );
+      if (apollo13 != null) events.add(apollo13);
+
       if (events.isEmpty) return;
 
       final previous = _state;
-      final next = AchievementEvaluator.applyAll(_state, events);
+      var next = AchievementEvaluator.applyAll(_state, events);
+
+      final apollo13AfterApply = AchievementEvaluator.eventForApollo13CatchUp(
+        tasks: _taskStore.activeTasks,
+        state: next,
+      );
+      if (apollo13AfterApply != null) {
+        next = AchievementEvaluator.applyAll(next, [apollo13AfterApply]);
+      }
+
       if (_statesEqual(next, previous)) return;
 
       _state = next;

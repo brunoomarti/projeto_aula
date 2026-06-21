@@ -1,7 +1,8 @@
 import 'achievement_medal.dart';
 import 'achievement_trail.dart';
-import 'achievement_trail_id.dart';
 import 'achievement_trail_flags.dart';
+import 'achievement_trail_id.dart';
+import 'rules/curiosities_trail_rules.dart';
 
 /// Catálogo estático de trilhas e medalhas — fonte da verdade das regras de negócio.
 abstract final class AchievementCatalog {
@@ -371,6 +372,34 @@ abstract final class AchievementCatalog {
         threshold: 1,
         title: 'Ordem e progresso',
         customMilestoneLabel: 'Criar uma tarefa no dia da bandeira',
+        unlockEventKeyPrefix: 'curiosities:flag_day:',
+      ),
+      AchievementMedal(
+        id: 'curiosity_voice_streak_10',
+        trail: AchievementTrailId.curiosities,
+        threshold: 1,
+        title: 'Fala Que Eu Faço',
+        customMilestoneLabel: 'Criar 10 tarefas seguidas usando a voz',
+        unlockEventKey: CuriositiesTrailRules.voiceStreak10EventKey,
+      ),
+      AchievementMedal(
+        id: 'curiosity_stamp_collector_100',
+        trail: AchievementTrailId.curiosities,
+        threshold: 1,
+        title: 'Carimbador Maluco',
+        customMilestoneLabel:
+            'Concluir 100 tarefas sem adiar nenhuma delas',
+        unlockEventKey: CuriositiesTrailRules.stampCollector100EventKey,
+      ),
+      AchievementMedal(
+        id: 'curiosity_apollo_13',
+        trail: AchievementTrailId.curiosities,
+        threshold: 1,
+        title: 'Apollo 13',
+        customMilestoneLabel:
+            'Concluir uma tarefa após 13 adiantamentos',
+        flavorText: 'Houston, resolvemos o problema.',
+        unlockEventKey: CuriositiesTrailRules.apollo13EventKey,
       ),
     ],
   );
@@ -379,17 +408,40 @@ abstract final class AchievementCatalog {
     return trailsById[trail]?.medals ?? const [];
   }
 
-  static Set<String> unlockedMedalIds(Map<AchievementTrailId, int> points) {
+  static Set<String> unlockedMedalIds(
+    Map<AchievementTrailId, int> points, {
+    Set<String> recordedEventKeys = const {},
+  }) {
     final unlocked = <String>{};
     for (final trail in trails) {
       if (!AchievementTrailFlags.isEnabled(trail.id)) continue;
       final score = points[trail.id] ?? 0;
       for (final medal in trail.medals) {
-        if (score >= medal.threshold) {
+        if (_isMedalUnlocked(
+          medal,
+          score: score,
+          recordedEventKeys: recordedEventKeys,
+        )) {
           unlocked.add(medal.id);
         }
       }
     }
     return unlocked;
+  }
+
+  static bool _isMedalUnlocked(
+    AchievementMedal medal, {
+    required int score,
+    required Set<String> recordedEventKeys,
+  }) {
+    final prefix = medal.unlockEventKeyPrefix;
+    if (prefix != null) {
+      return recordedEventKeys.any((key) => key.startsWith(prefix));
+    }
+    final exact = medal.unlockEventKey;
+    if (exact != null) {
+      return recordedEventKeys.contains(exact);
+    }
+    return score >= medal.threshold;
   }
 }

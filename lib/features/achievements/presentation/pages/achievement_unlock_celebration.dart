@@ -399,6 +399,22 @@ class _CelebrationCard extends StatelessWidget {
                 ),
               ),
             ),
+            if (medal.flavorText case final flavor?) ...[
+              const SizedBox(height: 12),
+              AchievementPopIn(
+                animation: milestonePop,
+                child: Text(
+                  flavor,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15,
+                    height: 1.35,
+                    fontStyle: FontStyle.italic,
+                    color: TaskerColors.secondaryText.withValues(alpha: 0.85),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),

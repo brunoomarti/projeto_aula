@@ -70,7 +70,7 @@ class MagicTaskInput extends StatefulWidget {
   final VoidCallback? onCreated;
 
   /// Dispara a criação na home — não aguarda (evita perder a tarefa ao fechar).
-  final void Function(String text)? onCreateTask;
+  final void Function(String text, {bool viaVoice})? onCreateTask;
 
   /// Estado de criação controlado pela home (sobrevive ao fechar o teclado).
   final bool isCreating;
@@ -489,11 +489,11 @@ class MagicTaskInputState extends State<MagicTaskInput>
     );
   }
 
-  void _createTaskFromText(String text) {
+  void _createTaskFromText(String text, {bool viaVoice = false}) {
     final trimmed = text.trim();
     if (isSubmitting || trimmed.isEmpty) return;
 
-    debugPrint('MagicTaskInput: enviando "$trimmed"');
+    debugPrint('MagicTaskInput: enviando "$trimmed" (voz=$viaVoice)');
 
     if (widget.onCreateTask != null) {
       if (MagicInputParserConfig.useGeminiParser &&
@@ -514,14 +514,17 @@ class MagicTaskInputState extends State<MagicTaskInput>
         _borderController.duration = const Duration(milliseconds: 2200);
         _borderController.repeat();
       }
-      widget.onCreateTask!(trimmed);
+      widget.onCreateTask!(trimmed, viaVoice: viaVoice);
       return;
     }
 
-    unawaited(_createTaskFromTextInline(trimmed));
+    unawaited(_createTaskFromTextInline(trimmed, viaVoice: viaVoice));
   }
 
-  Future<void> _createTaskFromTextInline(String text) async {
+  Future<void> _createTaskFromTextInline(
+    String text, {
+    bool viaVoice = false,
+  }) async {
     if (_isSubmitting || text.trim().isEmpty) return;
 
     setState(() => _isSubmitting = true);
@@ -532,7 +535,12 @@ class MagicTaskInputState extends State<MagicTaskInput>
     try {
       final task = await _buildTaskFromText(text.trim());
       if (!mounted) return;
-      await context.read<TaskStore>().addTask(task);
+      await context.read<TaskStore>().addTask(
+            task.copyWith(
+              createdViaMagic: true,
+              createdViaVoice: viaVoice,
+            ),
+          );
 
       final selectedYmd = TaskStore.formatDateYmd(
         TaskStore.dateOnly(widget.selectedDate),
@@ -691,7 +699,7 @@ class MagicTaskInputState extends State<MagicTaskInput>
       _resumePlaceholderIfIdle();
       return;
     }
-    _createTaskFromText(finalTranscript);
+    _createTaskFromText(finalTranscript, viaVoice: wasListening);
   }
 
   bool get _showSend =>

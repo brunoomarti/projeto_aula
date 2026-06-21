@@ -66,7 +66,10 @@ void main() {
       expect(state.isMedalUnlocked('tasks_created_10'), isTrue);
       expect(state.isMedalUnlocked('tasks_created_25'), isFalse);
       expect(
-        AchievementCatalog.unlockedMedalIds(state.pointsByTrail),
+        AchievementCatalog.unlockedMedalIds(
+          state.pointsByTrail,
+          recordedEventKeys: state.recordedEventKeys,
+        ),
         contains('tasks_created_10'),
       );
     });

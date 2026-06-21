@@ -19,7 +19,10 @@ abstract final class AchievementProgressApplier {
           (points[event.trail] ?? 0) + event.points;
 
       final keys = {...next.recordedEventKeys, event.eventKey};
-      final unlocked = AchievementCatalog.unlockedMedalIds(points);
+      final unlocked = AchievementCatalog.unlockedMedalIds(
+        points,
+        recordedEventKeys: keys,
+      );
 
       next = next.copyWith(
         pointsByTrail: points,

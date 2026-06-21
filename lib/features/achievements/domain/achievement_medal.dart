@@ -12,6 +12,9 @@ class AchievementMedal {
     required this.threshold,
     required this.title,
     this.customMilestoneLabel,
+    this.flavorText,
+    this.unlockEventKey,
+    this.unlockEventKeyPrefix,
   });
 
   final String id;
@@ -23,6 +26,15 @@ class AchievementMedal {
 
   /// Marco customizado (trilhas com regras únicas por medalha).
   final String? customMilestoneLabel;
+
+  /// Frase de sabor exibida após desbloquear (conquistas lendárias).
+  final String? flavorText;
+
+  /// Desbloqueio por evento exato no ledger (conquistas lendárias).
+  final String? unlockEventKey;
+
+  /// Desbloqueio quando qualquer evento começa com este prefixo.
+  final String? unlockEventKeyPrefix;
 
   /// Marco curto exibido no subtítulo após desbloquear.
   String get milestoneLabel =>

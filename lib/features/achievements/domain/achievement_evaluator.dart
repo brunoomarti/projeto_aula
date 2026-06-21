@@ -20,8 +20,41 @@ abstract final class AchievementEvaluator {
     return [
       ?TasksCreatedTrailRules.eventForNewTask(task),
       ?MagicInputTrailRules.eventForNewTask(task),
-      ?CuriositiesTrailRules.eventForNewTask(task),
+      ...CuriositiesTrailRules.eventsForNewTask(task),
     ];
+  }
+
+  /// Catch-up da sequência de voz (ex.: após sync ou ao abrir o app).
+  static AchievementEvent? eventForVoiceStreakCatchUp({
+    required Iterable<Task> tasks,
+    required AchievementProgressState state,
+  }) {
+    return CuriositiesTrailRules.eventForVoiceStreak(
+      tasks: tasks,
+      state: state,
+    );
+  }
+
+  /// Catch-up do Carimbador Maluco — 100 conclusões sem adiar.
+  static AchievementEvent? eventForStampCollectorCatchUp({
+    required Iterable<Task> tasks,
+    required AchievementProgressState state,
+  }) {
+    return CuriositiesTrailRules.eventForStampCollector(
+      tasks: tasks,
+      state: state,
+    );
+  }
+
+  /// Catch-up do Apollo 13 — concluir após 13 adiantamentos na mesma tarefa.
+  static AchievementEvent? eventForApollo13CatchUp({
+    required Iterable<Task> tasks,
+    required AchievementProgressState state,
+  }) {
+    return CuriositiesTrailRules.eventForApollo13(
+      tasks: tasks,
+      state: state,
+    );
   }
 
   /// Evento para mudança de data (adiantamento).

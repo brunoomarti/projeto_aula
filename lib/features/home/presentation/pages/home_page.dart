@@ -338,10 +338,10 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  void _onMagicTaskSubmit(String text) {
+  void _onMagicTaskSubmit(String text, {bool viaVoice = false}) {
     if (_magicTaskCreating) return;
 
-    debugPrint('MagicTask: submit iniciado — "$text"');
+    debugPrint('MagicTask: submit iniciado — "$text" (voz=$viaVoice)');
 
     final targetDay = TaskStore.dateOnly(_selectedDay);
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
@@ -355,10 +355,14 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     });
     _scheduleMeasureMagicInputFooter();
-    unawaited(_executeMagicTaskCreate(text, targetDay));
+    unawaited(_executeMagicTaskCreate(text, targetDay, viaVoice: viaVoice));
   }
 
-  Future<void> _executeMagicTaskCreate(String text, DateTime targetDay) async {
+  Future<void> _executeMagicTaskCreate(
+    String text,
+    DateTime targetDay, {
+    bool viaVoice = false,
+  }) async {
     var success = false;
     try {
       debugPrint('MagicTask: interpretando texto…');
@@ -372,7 +376,10 @@ class HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'MagicTask: salvando "${task.title}" em ${task.data.isEmpty ? "hoje" : task.data}',
       );
       await context.read<TaskStore>().addTask(
-        task.copyWith(createdViaMagic: true),
+        task.copyWith(
+          createdViaMagic: true,
+          createdViaVoice: viaVoice,
+        ),
       );
       if (!mounted) return;
 
@@ -1441,7 +1448,7 @@ class _MagicInputFooterLayer extends StatelessWidget {
   final DateTime selectedDay;
   final GlobalKey<MagicTaskInputState> magicInputKey;
   final bool isCreating;
-  final void Function(String text) onCreateTask;
+  final void Function(String text, {bool viaVoice}) onCreateTask;
   final ValueChanged<bool> onChromeActiveChanged;
   final VoidCallback onPreviousDay;
   final VoidCallback onNextDay;
