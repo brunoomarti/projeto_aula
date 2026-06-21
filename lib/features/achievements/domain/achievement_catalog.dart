@@ -6,11 +6,11 @@ import 'achievement_trail_id.dart';
 abstract final class AchievementCatalog {
   static const trails = <AchievementTrail>[
     tasksCreatedTrail,
-    unfinishedTasksTrail,
-    taskAdvancesTrail,
-    daysCompletedTrail,
-    pilhasCreatedTrail,
     magicInputTrail,
+    daysCompletedTrail,
+    taskAdvancesTrail,
+    pilhasCreatedTrail,
+    unfinishedTasksTrail,
   ];
 
   static final medalsById = {
