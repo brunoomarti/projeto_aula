@@ -20,15 +20,20 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      - name: tasker_nlp pub get
+        working-directory: packages/tasker_nlp
+        run: dart pub get
+
       - name: tasker_nlp unit tests
-        run: dart test packages/tasker_nlp
+        working-directory: packages/tasker_nlp
+        run: dart test
 
       - name: Flutter tests
         run: flutter test
 
       - name: pub.dev dry-run (tasker_nlp)
-        run: dart pub publish --dry-run
         working-directory: packages/tasker_nlp
+        run: dart pub publish --dry-run
 
   android-release:
     runs-on: ubuntu-latest
