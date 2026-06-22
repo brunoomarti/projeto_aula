@@ -49,3 +49,26 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Java heap dumps (Gradle OOM — podem ter vários GB)
+*.hprof
+
+# Caches e artefatos pesados Android/Gradle
+android/.gradle/
+android/.kotlin/
+**/.kotlin/
+android/**/build/
+android/captures/
+
+# Binários de build locais
+*.apk
+*.aab
+*.ipa
+
+# iOS build local
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/build/
+**/DerivedData/

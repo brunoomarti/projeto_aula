@@ -12,3 +12,9 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Heap dumps (OOM do Gradle)
+*.hprof
+
+# Cache Kotlin/Gradle local
+.kotlin/
