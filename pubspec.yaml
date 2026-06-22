@@ -52,7 +52,7 @@ dependencies:
   firebase_auth: ^6.5.2
   google_sign_in: ^7.2.0
   supabase_flutter: ^2.12.4
-  connectivity_plus: ^7.1.1
+  connectivity_plus: '>=7.0.0 <7.1.0'
   flutter_local_notifications: ^18.0.1
   home_widget: ^0.7.0
   tasker_nlp:
