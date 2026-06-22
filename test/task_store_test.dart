@@ -5,6 +5,8 @@ import 'package:tasker_project/features/tasks/data/task_local_repository.dart';
 import 'package:tasker_project/features/tasks/domain/task.dart';
 import 'package:tasker_project/features/tasks/presentation/state/task_store.dart';
 
+import 'support/test_task_store.dart';
+
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -29,19 +31,17 @@ void main() {
     );
   }
 
-  test('initialize carrega tarefas do repositório', () async {
+  test('reload carrega tarefas do repositório', () async {
     await TaskLocalRepository.instance.addTask(_task(id: '1', title: 'A'));
 
-    final store = TaskStore();
-    await store.initialize();
+    final store = await readyTaskStoreForTest();
 
     expect(store.tasks, hasLength(1));
     expect(store.taskById('1')?.title, 'A');
   });
 
   test('addTask reflete imediatamente em todayTasks', () async {
-    final store = TaskStore();
-    await store.initialize();
+    final store = await readyTaskStoreForTest();
 
     await store.addTask(_task(id: '2', title: 'Hoje', hora: '08:00'));
 
@@ -50,8 +50,7 @@ void main() {
   });
 
   test('updateTaskDone move tarefa para completedTasks', () async {
-    final store = TaskStore();
-    await store.initialize();
+    final store = await readyTaskStoreForTest();
     await store.addTask(_task(id: '3', title: 'Fechar'));
 
     await store.updateTaskDone('3', true);
@@ -62,8 +61,7 @@ void main() {
   });
 
   test('todayTasks reordena pendentes por hora ao desfazer conclusão', () async {
-    final store = TaskStore();
-    await store.initialize();
+    final store = await readyTaskStoreForTest();
 
     await store.addTask(_task(id: 'a', title: 'A', hora: '08:00'));
     await store.addTask(_task(id: 'b', title: 'B', hora: '09:00'));
@@ -77,8 +75,7 @@ void main() {
   });
 
   test('markTaskDeleted remove da contagem ativa', () async {
-    final store = TaskStore();
-    await store.initialize();
+    final store = await readyTaskStoreForTest();
     await store.addTask(_task(id: '4', title: 'Apagar'));
 
     await store.markTaskDeleted('4');

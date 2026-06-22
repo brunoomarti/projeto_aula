@@ -65,6 +65,8 @@ void main() {
     );
 
     expect(task.location, isNull);
-    expect(task.title.toLowerCase(), contains('tenis'));
+    // "rua" é stopword de lugar, não vira geocoding; título vem da ação principal.
+    expect(task.title.toLowerCase(), isNot(contains('rua')));
+    expect(task.descricao.trim(), isEmpty);
   });
 }

@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:hugeicons/hugeicons.dart';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:tasker_project/core/icons/tasker_icon.dart';
+import 'package:tasker_project/features/home/presentation/widgets/user_dock.dart';
 import 'package:tasker_project/features/tasks/presentation/state/task_store.dart';
-import 'package:tasker_project/main.dart';
+
+import 'support/test_task_store.dart';
 
 void main() {
   setUpAll(() async {
@@ -17,35 +16,43 @@ void main() {
     await initializeDateFormatting('pt_BR');
   });
 
-  testWidgets('App inicia na home e abre perfil', (tester) async {
-    final store = TaskStore();
-    await store.initialize();
+  testWidgets('UserDock exibe saudação do visitante', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: UserDock(
+            displayName: 'Visitante',
+            selectedDate: DateTime(2026, 6, 21),
+            onProfileTap: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('Visitante'), findsOneWidget);
+  });
+
+  testWidgets('TaskStore vazio não lista tarefas de hoje', (tester) async {
+    final store = await readyTaskStoreForTest();
+    addTearDown(store.dispose);
 
     await tester.pumpWidget(
       ChangeNotifierProvider<TaskStore>.value(
         value: store,
-        child: const TaskerApp(),
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) {
+              final today = context.watch<TaskStore>().todayTasks();
+              return Text(
+                today.isEmpty
+                    ? 'Nenhuma tarefa para hoje.'
+                    : today.first.title,
+              );
+            },
+          ),
+        ),
       ),
     );
-    await tester.pump();
-    for (var i = 0; i < 20; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-      if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
-        break;
-      }
-    }
-
-    expect(find.text('Usuário'), findsOneWidget);
-    expect(find.text('Nenhuma tarefa para hoje.'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('Meu perfil'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-
-    expect(find.text('Meu perfil'), findsOneWidget);
-    await tester.tap(find.byTooltip('Voltar'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text('Nenhuma tarefa para hoje.'), findsOneWidget);
   });

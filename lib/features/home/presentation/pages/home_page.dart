@@ -27,6 +27,7 @@ import '../widgets/home_app_dock.dart';
 import '../widgets/home_day_selector.dart';
 import '../widgets/home_day_selector_drag_scope.dart';
 import '../widgets/home_day_swipe_detector.dart';
+import '../../domain/home_task_drag_rules.dart';
 import '../widgets/magic_task_ghost_card.dart';
 import '../widgets/magic_task_input.dart';
 import '../widgets/user_dock.dart';
@@ -896,8 +897,10 @@ class _HomeDayTasksListState extends State<_HomeDayTasksList> {
   }
 
   bool _taskHasValidPilha(Task task, TaskStore store) {
-    final pilhaId = task.pilhaId;
-    return pilhaId != null && pilhaId.isNotEmpty && store.pilhaById(pilhaId) != null;
+    return HomeTaskDragRules.taskHasValidPilha(
+      task,
+      pilhaExists: (id) => store.pilhaById(id) != null,
+    );
   }
 
   bool _canAcceptStackDrop({
@@ -906,21 +909,14 @@ class _HomeDayTasksListState extends State<_HomeDayTasksList> {
     String? targetPilhaId,
     List<Task>? pilhaTasks,
   }) {
-    if (targetTask != null) {
-      if (dragged.id == targetTask.id) return false;
-      if (_taskHasValidPilha(targetTask, context.read<TaskStore>())) {
-        return false;
-      }
-      return true;
-    }
-
-    if (targetPilhaId != null && pilhaTasks != null) {
-      if (pilhaTasks.any((t) => t.id == dragged.id)) return false;
-      if (dragged.pilhaId == targetPilhaId) return false;
-      return true;
-    }
-
-    return false;
+    final store = context.read<TaskStore>();
+    return HomeTaskDragRules.canAcceptStackDrop(
+      dragged: dragged,
+      targetTask: targetTask,
+      targetPilhaId: targetPilhaId,
+      pilhaTasks: pilhaTasks,
+      pilhaExists: (id) => store.pilhaById(id) != null,
+    );
   }
 
   Future<void> _handleDropOnTask(Task dragged, Task target) async {

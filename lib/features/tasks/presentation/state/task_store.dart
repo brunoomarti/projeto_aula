@@ -31,15 +31,15 @@ class TaskStore extends ChangeNotifier {
     TaskLocalRepository? localRepository,
     PilhaLocalRepository? pilhaRepository,
     ConnectivityService? connectivity,
+    firebase_auth.FirebaseAuth? firebaseAuth,
   })  : _repository = repository ?? TaskSupabaseRepository(),
         _local = localRepository ?? TaskLocalRepository.instance,
         _pilhasLocal = pilhaRepository ?? PilhaLocalRepository.instance,
         _connectivity = connectivity ?? ConnectivityService() {
     _connectivitySub =
         _connectivity.onStatusChange.listen(_handleConnectivityChange);
-    _authSub = firebase_auth.FirebaseAuth.instance.idTokenChanges().listen(
-      _handleAuthTokenChange,
-    );
+    final auth = firebaseAuth ?? firebase_auth.FirebaseAuth.instance;
+    _authSub = auth.idTokenChanges().listen(_handleAuthTokenChange);
   }
 
   final TaskRepository _repository;

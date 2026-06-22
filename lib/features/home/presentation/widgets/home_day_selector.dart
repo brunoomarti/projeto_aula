@@ -12,6 +12,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../app/theme/tasker_colors.dart';
+import '../../domain/home_task_drag_rules.dart';
 import '../../../tasks/domain/task.dart';
 import '../../../tasks/presentation/state/task_store.dart';
 import '../../../tasks/presentation/widgets/task_stack_drag.dart';
@@ -349,10 +350,7 @@ class _HomeDaySelectorState extends State<HomeDaySelector>
 
   bool _canDropTaskOnDay(Task task, DateTime day) {
     if (widget.onTaskDroppedOnDay == null) return false;
-    final targetYmd = TaskStore.formatDateYmd(day);
-    final todayYmd = TaskStore.formatDateYmd(DateTime.now());
-    final taskYmd = task.data.isEmpty ? todayYmd : task.data;
-    return taskYmd != targetYmd;
+    return HomeTaskDragRules.canDropTaskOnDay(task, day);
   }
 
   Future<void> _handleTaskDrop(Task task, DateTime day) async {
